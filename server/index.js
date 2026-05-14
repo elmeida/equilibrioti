@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import titulosRouter from './routes/titulos.js';
 import authRouter from './routes/auth.js';
 import { ensureAuthSchema } from './auth/init.js';
-import { requireAuth } from './auth/middleware.js';
+import { requireAuth, requireAdmin } from './auth/middleware.js';
 
 dotenv.config();
 
@@ -17,7 +17,12 @@ const port = Number(process.env.SERVER_PORT || 3001);
 
 app.use(cors());
 app.use(express.json());
+
+app.use('/uploads/empresas', express.static(path.resolve(__dirname, '../server/uploads/empresas')));
+
 app.use('/api/auth', authRouter);
+import adminRouter from './routes/admin.js';
+app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 app.use('/api/titulos', requireAuth, titulosRouter);
 
 app.get('/api/health', (_req, res) => {

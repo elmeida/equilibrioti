@@ -3,7 +3,7 @@ import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { login, type AuthUser } from '../services/api';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: AuthUser) => void }) {
-  const [email, setEmail] = useState('admin@equilibrioti.com.br');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);

@@ -55,6 +55,18 @@ export function clearApiCache(prefix = '') {
   for (const key of memoryCache.keys()) {
     if (!prefix || key.includes(prefix)) memoryCache.delete(key);
   }
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith('titulos:')) {
+        if (!prefix || k.includes(prefix)) keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  } catch (e) {
+    // Ignore storage errors
+  }
 }
 
 export async function apiGet<T>(
@@ -122,6 +134,12 @@ export type AuthUser = {
   nome: string;
   email: string;
   perfil: string;
+  empresa_id?: number | null;
+  empresa?: {
+    id: number;
+    nome: string;
+    logo_url: string;
+  } | null;
 };
 
 export function getAuthToken() {
@@ -134,12 +152,20 @@ export function setAuthToken(token: string) {
 
 export function clearAuthToken() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem('equilibrioti:active-empresa');
   clearApiCache();
 }
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  
+  const activeEmpresaId = localStorage.getItem('equilibrioti:active-empresa');
+  if (activeEmpresaId) {
+    headers['X-Empresa-Id'] = activeEmpresaId;
+  }
+  return headers;
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -165,4 +191,62 @@ export async function loadMe() {
 
 export async function changePassword(currentPassword: string, newPassword: string) {
   return apiPost<{ ok: true }>('/api/auth/change-password', { currentPassword, newPassword });
+}
+
+// --- Admin APIs ---
+
+export async function adminGetEmpresas() {
+  return apiGet<any[]>('/api/admin/empresas', undefined, undefined, { cache: false });
+}
+
+export async function adminSaveEmpresa(data: any, id?: number) {
+  if (id) {
+    const res = await fetch(`${API}/api/admin/empresas/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro ao atualizar empresa');
+    return res.json();
+  } else {
+    return apiPost<any>('/api/admin/empresas', data);
+  }
+}
+
+export async function adminTestConnection(data: any) {
+  return apiPost<{ ok: boolean; message: string }>('/api/admin/empresas/test-connection', data);
+}
+
+export async function adminUploadLogo(file: File) {
+  const formData = new FormData();
+  formData.append('logo', file);
+  const res = await fetch(`${API}/api/admin/empresas/upload-logo`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+  });
+  if (!res.ok) throw new Error('Erro ao fazer upload da logo');
+  return res.json() as Promise<{ url: string }>;
+}
+
+export async function adminGetUsuarios() {
+  return apiGet<any[]>('/api/admin/usuarios', undefined, undefined, { cache: false });
+}
+
+export async function adminSaveUsuario(data: any, id?: number) {
+  if (id) {
+    const res = await fetch(`${API}/api/admin/usuarios/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro ao atualizar usuário');
+    return res.json();
+  } else {
+    return apiPost<any>('/api/admin/usuarios', data);
+  }
+}
+
+export async function adminResetPassword(id: number, novaSenha: string) {
+  return apiPost<{ ok: true; message: string }>(`/api/admin/usuarios/${id}/reset-password`, { novaSenha });
 }

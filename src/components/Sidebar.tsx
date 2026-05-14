@@ -4,12 +4,14 @@ import type { AuthUser } from '../services/api';
 export function Sidebar({
   open,
   user,
+  navItems,
   onClose,
   onLogout,
   onChangePassword,
 }: {
   open: boolean;
   user?: AuthUser | null;
+  navItems?: React.ReactNode;
   onClose?: () => void;
   onLogout?: () => void;
   onChangePassword?: () => void;
@@ -19,16 +21,18 @@ export function Sidebar({
       <div>
         <div className="sidebar-head">
           <div className="sidebar-logo"><img src="/favicon.png" alt="Equilíbrio TI" /></div>
-          <img className="sidebar-brand-logo" src="/logo_login_equilibrio.png" alt="Equilíbrio TI" />
+          <img className="sidebar-brand-logo" src="/logo_equilibrioti.png" alt="Equilíbrio TI" />
           <button className="sidebar-close" onClick={onClose} aria-label="Fechar menu">
             <X size={18} />
           </button>
         </div>
         <nav>
-          <a className="active" title="Financeiro">
-            <WalletCards size={20} />
-            <span>Financeiro</span>
-          </a>
+          {navItems || (
+            <a className="active" title="Financeiro">
+              <WalletCards size={20} />
+              <span>Financeiro</span>
+            </a>
+          )}
         </nav>
       </div>
 

@@ -24,6 +24,12 @@ function publicUser(row) {
     nome: row.nome,
     email: row.email,
     perfil: row.perfil,
+    empresa_id: row.empresa_id,
+    empresa: row.empresa_nome ? {
+      id: row.empresa_id,
+      nome: row.empresa_nome,
+      logo_url: row.empresa_logo,
+    } : null,
   };
 }
 
@@ -32,7 +38,10 @@ router.post('/login', async (req, res, next) => {
     const payload = loginSchema.parse(req.body);
     const pool = getAuthPool();
     const result = await pool.query(
-      `SELECT id, nome, email, senha_hash, perfil FROM ${schema}.usuarios WHERE lower(email) = lower($1) AND ativo = true LIMIT 1`,
+      `SELECT u.id, u.nome, u.email, u.senha_hash, u.perfil, u.empresa_id, e.nome as empresa_nome, e.logo_url as empresa_logo 
+       FROM ${schema}.usuarios u 
+       LEFT JOIN ${schema}.empresas e ON u.empresa_id = e.id 
+       WHERE lower(u.email) = lower($1) AND u.ativo = true LIMIT 1`,
       [payload.email],
     );
 
@@ -53,7 +62,10 @@ router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const pool = getAuthPool();
     const result = await pool.query(
-      `SELECT id, nome, email, perfil FROM ${schema}.usuarios WHERE id = $1 AND ativo = true LIMIT 1`,
+      `SELECT u.id, u.nome, u.email, u.perfil, u.empresa_id, e.nome as empresa_nome, e.logo_url as empresa_logo 
+       FROM ${schema}.usuarios u 
+       LEFT JOIN ${schema}.empresas e ON u.empresa_id = e.id 
+       WHERE u.id = $1 AND u.ativo = true LIMIT 1`,
       [req.user.sub],
     );
     if (!result.rows[0]) return res.status(401).json({ error: 'Usuário não encontrado.' });

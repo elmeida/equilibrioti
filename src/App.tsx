@@ -15,6 +15,7 @@ import {
   Table2,
   WalletCards,
   X,
+  LogOut,
 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { LoginScreen } from './components/LoginScreen';
@@ -25,6 +26,7 @@ import { DataTables } from './components/DataTables';
 import { useDashboardData } from './hooks/useDashboardData';
 import { changePassword, clearAuthToken, defaultFilters, exportUrl, Filters, getAuthToken, loadMe, type AuthUser } from './services/api';
 import { fmtInt, fmtMoney, fmtPercent, safe } from './utils/format';
+import { AdminApp } from './AdminApp';
 
 type TabKey = 'geral' | 'fluxo' | 'pagarReceber' | 'vencidos' | 'rankings' | 'inconsistencias' | 'tabela';
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -46,9 +48,52 @@ const vencidosKpis: KpiKey[] = ['valorVencidoAberto', 'titulosVencidosAberto', '
 const inconsistenciaKpis: KpiKey[] = ['titulosValorZerado'];
 
 export function App() {
-  const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(Boolean(getAuthToken()));
+  const [activeEmpresa, setActiveEmpresa] = useState<any>(() => {
+    const stored = localStorage.getItem('equilibrioti:active-empresa-data');
+    return stored ? JSON.parse(stored) : null;
+  });
+
+  useEffect(() => {
+    if (!getAuthToken()) return;
+    loadMe()
+      .then(({ user: currentUser }) => setUser(currentUser))
+      .catch(() => clearAuthToken())
+      .finally(() => setCheckingAuth(false));
+  }, []);
+
+  const logout = () => {
+    clearAuthToken();
+    setUser(null);
+    setActiveEmpresa(null);
+  };
+
+  if (checkingAuth) {
+    return <main className="login-page light"><div className="login-card"><strong>Carregando sessão...</strong></div></main>;
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={setUser} />;
+  }
+
+  if (user.perfil === 'admin' && !activeEmpresa) {
+    return <AdminApp user={user} onImpersonate={(emp) => {
+      localStorage.setItem('equilibrioti:active-empresa', String(emp.id));
+      localStorage.setItem('equilibrioti:active-empresa-data', JSON.stringify(emp));
+      setActiveEmpresa(emp);
+    }} onLogout={logout} />;
+  }
+
+  return <BIDashboard user={user} activeEmpresa={activeEmpresa} onStopImpersonate={user.perfil === 'admin' ? () => {
+    localStorage.removeItem('equilibrioti:active-empresa');
+    localStorage.removeItem('equilibrioti:active-empresa-data');
+    setActiveEmpresa(null);
+  } : undefined} onLogout={logout} />;
+}
+
+export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }: { user: AuthUser, activeEmpresa: any, onStopImpersonate?: () => void, onLogout: () => void }) {
+  const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [passwordModal, setPasswordModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -61,14 +106,6 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('geral');
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user));
-
-  useEffect(() => {
-    if (!getAuthToken()) return;
-    loadMe()
-      .then(({ user: currentUser }) => setUser(currentUser))
-      .catch(() => clearAuthToken())
-      .finally(() => setCheckingAuth(false));
-  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -114,10 +151,8 @@ export function App() {
   const inconsistencyCounts = countInconsistencies(data.inconsistencias.data);
   const quality = qualitySummary(data.inconsistenciasResumo.data, data.kpis.data.quantidadeTitulos);
 
-  const logout = () => {
-    clearAuthToken();
-    setUser(null);
-  };
+  const logoUrl = activeEmpresa?.logo_url || user.empresa?.logo_url || '/logo_equilibrioti.png';
+  const empresaNome = activeEmpresa?.nome || user.empresa?.nome || 'Equilíbrio TI';
 
   const installApp = async () => {
     if (!installPrompt) {
@@ -129,30 +164,23 @@ export function App() {
     setInstallPrompt(null);
   };
 
-  if (checkingAuth) {
-    return <main className={`login-page ${theme}`}><div className="login-card"><strong>Carregando sessão...</strong></div></main>;
-  }
-
-  if (!user) {
-    return <LoginScreen onLogin={setUser} />;
-  }
-
   return (
     <div className={`app ${theme} ${sidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
-      <Sidebar open={sidebarOpen} user={user} onClose={() => setSidebarOpen(false)} onLogout={logout} onChangePassword={() => setPasswordModal(true)} />
+      <Sidebar open={sidebarOpen} user={user} onClose={() => setSidebarOpen(false)} onLogout={onLogout} onChangePassword={() => setPasswordModal(true)} />
       <div className="shell">
         <header className="topbar">
           <div className="brand">
             <button className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="Alternar menu">
               <Menu size={20} />
             </button>
-            <img src="/logo_servdrill.png" alt="Servdrill" />
-            <div>
-              <strong>Equilíbrio BI</strong>
-              <span>Análise integrada TOTVS RM</span>
-            </div>
+            <img src={logoUrl} alt={empresaNome} style={{ maxHeight: '40px', maxWidth: '200px', objectFit: 'contain' }} />
           </div>
           <div className="top-actions">
+            {onStopImpersonate && (
+              <button className="ghost-button" onClick={onStopImpersonate}>
+                <LogOut size={18} /> Voltar ao Painel Admin
+              </button>
+            )}
             <div className={`update-status ${data.isUpdating ? 'updating' : ''}`}>
               <RefreshCw size={14} />
               <span>{data.isUpdating ? data.refreshingLabel || 'Atualizando dados...' : `Última atualização: ${formatLastUpdate(data.lastUpdated)}`}</span>

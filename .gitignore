@@ -3,3 +3,5 @@ dist/
 .env
 .dev-pids
 npm-debug.log*
+
+server/uploads/

@@ -1,22 +1,24 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { getPool, sql } from '../db/pool.js';
+import { getPoolForEmpresa, sql } from '../db/pool.js';
 import { baseSubquery, DATE_FIELDS, ORDER_FIELDS } from '../sql/titulosBase.js';
 import { bindInput, buildFilters, jsonRows } from '../utils/queryBuilder.js';
 import { getCache, setCache } from '../utils/cache.js';
+import { requireEmpresa } from '../auth/middleware.js';
 
 const router = Router();
+router.use(requireEmpresa);
 const SHORT_TTL = 4 * 60 * 1000;
 const FILTER_TTL = 8 * 60 * 1000;
 
 async function runFiltered(req, sqlText, options = {}) {
   const ttl = options.ttl ?? SHORT_TTL;
-  const cacheKey = `titulos:${req.originalUrl}:${sqlText}`;
+  const cacheKey = `titulos:${req.empresaId}:${req.originalUrl}:${sqlText}`;
   if (req.query.refresh !== '1' && ttl > 0) {
     const cached = getCache(cacheKey);
     if (cached) return cached;
   }
-  const pool = await getPool();
+  const pool = await getPoolForEmpresa(req.empresaId);
   const request = pool.request();
   const where = buildFilters(req.query, request);
   const result = await request.query(sqlText.replaceAll('__WHERE__', where));
@@ -306,10 +308,10 @@ router.get('/analises', async (req, res, next) => {
 
 router.get('/tabela', async (req, res, next) => {
   try {
-    const cacheKey = `titulos:filtros:${req.originalUrl}`;
+    const cacheKey = `titulos:${req.empresaId}:filtros:${req.originalUrl}`;
     const cached = getCache(cacheKey);
     if (cached) return res.json(cached);
-    const pool = await getPool();
+    const pool = await getPoolForEmpresa(req.empresaId);
     const request = pool.request();
     const where = buildFilters(req.query, request);
     const page = Math.max(Number(req.query.page || 1), 1);
@@ -454,10 +456,10 @@ router.get('/filtros/:tipo', async (req, res, next) => {
   if (!field) return res.status(404).json({ error: 'Filtro não encontrado.' });
 
   try {
-    const cacheKey = `titulos:filtro:${req.params.tipo}:${req.query.q || ''}`;
+    const cacheKey = `titulos:${req.empresaId}:filtro:${req.params.tipo}:${req.query.q || ''}`;
     const cached = getCache(cacheKey);
     if (cached) return res.json(cached);
-    const pool = await getPool();
+    const pool = await getPoolForEmpresa(req.empresaId);
     const request = pool.request();
     const term = String(req.query.q || '').trim();
     let where = `NULLIF(${field}, '') IS NOT NULL`;
@@ -480,7 +482,7 @@ router.get('/filtros/:tipo', async (req, res, next) => {
 
 router.get('/export', async (req, res, next) => {
   try {
-    const pool = await getPool();
+    const pool = await getPoolForEmpresa(req.empresaId);
     const request = pool.request();
     const where = buildFilters(req.query, request);
     const result = await request.query(`
