@@ -44,10 +44,11 @@ const vencidosKpis: KpiKey[] = ['valorVencidoAberto', 'titulosVencidosAberto', '
 const inconsistenciaKpis: KpiKey[] = ['titulosValorZerado'];
 
 export function App() {
+  const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<Filters>(defaultFilters);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(initialSidebarOpen);
   const [mobileFilters, setMobileFilters] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('geral');
