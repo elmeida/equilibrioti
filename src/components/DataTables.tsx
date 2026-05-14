@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Download, FileWarning, Search, Settings2 } from 'lucide-react';
 import { apiGet, exportUrl, Filters } from '../services/api';
@@ -123,14 +123,7 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
                 <th />
                 {visibleCols.map((col) => <th key={col}><button onClick={() => changeSort(col)}>{col}<ChevronsUpDown size={13} /></button></th>)}
               </tr>
-              <tr className="column-filter-row">
-                <th />
-                {visibleCols.map((col) => (
-                  <th key={`${col}-filter`}>
-                    <input value={columnFilters[col] || ''} onChange={(event) => setColumnFilters((old) => ({ ...old, [col]: event.target.value }))} placeholder="Filtrar" />
-                  </th>
-                ))}
-              </tr>
+
             </thead>
             <tbody>
               {loading && <tr><td colSpan={visibleCols.length + 1}>Carregando dados...</td></tr>}
