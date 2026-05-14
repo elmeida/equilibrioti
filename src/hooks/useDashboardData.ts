@@ -41,7 +41,7 @@ const endpointMap: Record<string, string> = {
   inconsistenciasResumo: '/api/titulos/inconsistencias/resumo',
 };
 
-export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number) {
+export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number, enabled = true) {
   const abortRef = useRef<AbortController | null>(null);
   const loadedSignatureRef = useRef('');
   const [refreshingLabel, setRefreshingLabel] = useState('');
@@ -58,6 +58,7 @@ export function useDashboardData(filters: Filters, activeTab: DashboardTab, refr
   });
 
   const load = useCallback(async (force = false) => {
+    if (!enabled) return;
     const endpoints = tabEndpoints[activeTab];
     if (endpoints.length === 0) return;
     const signature = `${activeTab}:${JSON.stringify(filters)}`;
@@ -96,12 +97,13 @@ export function useDashboardData(filters: Filters, activeTab: DashboardTab, refr
       setIsUpdating(false);
       setRefreshingLabel('');
     }
-  }, [filters, activeTab]);
+  }, [filters, activeTab, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     load(refreshKey > 0);
     return () => abortRef.current?.abort();
-  }, [load, refreshKey]);
+  }, [load, refreshKey, enabled]);
 
   return useMemo(() => ({ ...state, reload: () => load(true), refreshingLabel, isUpdating, lastUpdated }), [state, load, refreshingLabel, isUpdating, lastUpdated]);
 }

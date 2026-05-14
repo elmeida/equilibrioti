@@ -1,7 +1,7 @@
 {
-  "name": "Equilíbrio TI - Financeiro",
-  "short_name": "Financeiro",
-  "description": "Dashboard financeiro de títulos a pagar e a receber.",
+  "name": "Equilíbrio BI",
+  "short_name": "Equilíbrio BI",
+  "description": "Equilíbrio BI.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -17,15 +17,17 @@ import {
   X,
 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { LoginScreen } from './components/LoginScreen';
 import { FilterPanel } from './components/FilterPanel';
 import { KpiCards, type KpiKey } from './components/KpiCards';
 import { Charts, type ChartId } from './components/Charts';
 import { DataTables } from './components/DataTables';
 import { useDashboardData } from './hooks/useDashboardData';
-import { defaultFilters, exportUrl, Filters } from './services/api';
+import { changePassword, clearAuthToken, defaultFilters, exportUrl, Filters, getAuthToken, loadMe, type AuthUser } from './services/api';
 import { fmtInt, fmtMoney, fmtPercent, safe } from './utils/format';
 
 type TabKey = 'geral' | 'fluxo' | 'pagarReceber' | 'vencidos' | 'rankings' | 'inconsistencias' | 'tabela';
+type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 const tabs: { key: TabKey; label: string; icon: ReactNode }[] = [
   { key: 'geral', label: 'Visão Geral', icon: <LayoutGrid size={16} /> },
@@ -45,6 +47,11 @@ const inconsistenciaKpis: KpiKey[] = ['titulosValorZerado'];
 
 export function App() {
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(Boolean(getAuthToken()));
+  const [passwordModal, setPasswordModal] = useState(false);
+  const [installHelp, setInstallHelp] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<Filters>(defaultFilters);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -53,7 +60,24 @@ export function App() {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('geral');
   const [refreshKey, setRefreshKey] = useState(0);
-  const data = useDashboardData(filters, activeTab, refreshKey);
+  const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user));
+
+  useEffect(() => {
+    if (!getAuthToken()) return;
+    loadMe()
+      .then(({ user: currentUser }) => setUser(currentUser))
+      .catch(() => clearAuthToken())
+      .finally(() => setCheckingAuth(false));
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   const activeFilters = useMemo(() => {
     return Object.entries(filters).filter(([key, value]) => {
@@ -90,9 +114,32 @@ export function App() {
   const inconsistencyCounts = countInconsistencies(data.inconsistencias.data);
   const quality = qualitySummary(data.inconsistenciasResumo.data, data.kpis.data.quantidadeTitulos);
 
+  const logout = () => {
+    clearAuthToken();
+    setUser(null);
+  };
+
+  const installApp = async () => {
+    if (!installPrompt) {
+      setInstallHelp(true);
+      return;
+    }
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
+
+  if (checkingAuth) {
+    return <main className={`login-page ${theme}`}><div className="login-card"><strong>Carregando sessão...</strong></div></main>;
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={setUser} />;
+  }
+
   return (
     <div className={`app ${theme} ${sidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} user={user} onClose={() => setSidebarOpen(false)} onLogout={logout} onChangePassword={() => setPasswordModal(true)} />
       <div className="shell">
         <header className="topbar">
           <div className="brand">
@@ -101,7 +148,7 @@ export function App() {
             </button>
             <img src="/logo_servdrill.png" alt="Servdrill" />
             <div>
-              <strong>Títulos Financeiros</strong>
+              <strong>Equilíbrio BI</strong>
               <span>Análise integrada TOTVS RM</span>
             </div>
           </div>
@@ -110,6 +157,7 @@ export function App() {
               <RefreshCw size={14} />
               <span>{data.isUpdating ? data.refreshingLabel || 'Atualizando dados...' : `Última atualização: ${formatLastUpdate(data.lastUpdated)}`}</span>
             </div>
+            <button className="ghost-button" onClick={installApp}>Instalar app</button>
             <button className="ghost-button mobile-only" onClick={() => setMobileFilters(true)}>
               <Filter size={18} /> Filtros {activeFilters ? `(${activeFilters})` : ''}
             </button>
@@ -249,6 +297,8 @@ export function App() {
 
         <footer>Desenvolvido por Equilíbrio TI</footer>
       </div>
+      {passwordModal && <ChangePasswordModal onClose={() => setPasswordModal(false)} />}
+      {installHelp && <InstallHelpModal onClose={() => setInstallHelp(false)} />}
     </div>
   );
 }
@@ -308,6 +358,99 @@ function MiniMetric({ title, value, type, icon }: { title: string; value: any; t
       ? fmtPercent(value)
       : value;
   return <article className="mini-metric"><div>{icon}</div><span>{title}</span><strong>{formatted}</strong></article>;
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    if (newPassword !== confirmPassword) {
+      setError('A confirmação da nova senha não confere.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setMessage('Senha alterada com sucesso.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível alterar a senha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="password-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <span className="eyebrow">Segurança</span>
+            <h3>Alterar senha</h3>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+        </header>
+        <label>
+          Senha atual
+          <span className="login-input">
+            <input type={showCurrent ? 'text' : 'password'} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+            <button type="button" onClick={() => setShowCurrent((value) => !value)}>{showCurrent ? 'Ocultar' : 'Mostrar'}</button>
+          </span>
+        </label>
+        <label>
+          Nova senha
+          <span className="login-input">
+            <input type={showNew ? 'text' : 'password'} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} required />
+            <button type="button" onClick={() => setShowNew((value) => !value)}>{showNew ? 'Ocultar' : 'Mostrar'}</button>
+          </span>
+        </label>
+        <label>
+          Confirmar nova senha
+          <span className="login-input">
+            <input type={showNew ? 'text' : 'password'} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} required />
+          </span>
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        {message && <div className="login-success">{message}</div>}
+        <button className="login-submit" disabled={loading}>{loading ? 'Alterando...' : 'Salvar nova senha'}</button>
+      </form>
+    </div>
+  );
+}
+
+function InstallHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="password-modal" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <span className="eyebrow">Instalação</span>
+            <h3>Instalar Equilíbrio BI</h3>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+        </header>
+        <p className="install-help-text">
+          O aplicativo já está preparado como PWA. Para o navegador liberar a instalação automática, a página precisa estar em HTTPS com certificado válido.
+        </p>
+        <p className="install-help-text">
+          Enquanto estiver acessando por IP em HTTP, use o menu do navegador para criar um atalho quando disponível. Para instalação completa no Windows e celular, configure um domínio com HTTPS.
+        </p>
+        <button className="login-submit" onClick={onClose}>Entendi</button>
+      </section>
+    </div>
+  );
 }
 
 function buildInsights(data: ReturnType<typeof useDashboardData>, activeFilters: number) {

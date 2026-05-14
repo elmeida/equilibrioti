@@ -1,8 +1,8 @@
 {
-  "name": "titulos-financeiros",
+  "name": "equilibrio-bi",
   "version": "1.0.0",
   "private": true,
-  "description": "Dashboard web Títulos Financeiros integrado ao TOTVS RM.",
+  "description": "Dashboard web Equilíbrio BI integrado ao TOTVS RM.",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm:server\" \"npm:client\"",
@@ -14,12 +14,15 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.561.0",
     "mssql": "^12.2.0",
+    "pg": "^8.16.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
