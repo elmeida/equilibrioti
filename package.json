@@ -1,0 +1,35 @@
+{
+  "name": "titulos-financeiros",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard web Títulos Financeiros integrado ao TOTVS RM.",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm:server\" \"npm:client\"",
+    "client": "vite --host 0.0.0.0",
+    "server": "node --watch server/index.js",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "NODE_ENV=production node server/index.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "lucide-react": "^0.561.0",
+    "mssql": "^12.2.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "recharts": "^3.6.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1"
+  }
+}
