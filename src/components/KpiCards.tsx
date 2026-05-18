@@ -20,7 +20,7 @@ export const kpiRegistry = {
   totalReceber: ['Total a receber', 'money', TrendingUp, 'Soma de VLRRATEIO com PAGREC = A Receber.'],
   saldoLiquido: ['Saldo líquido', 'money', Scale, 'Total a receber menos total a pagar.'],
   totalAberto: ['Valor em aberto', 'money', Clock, 'Soma de VLRRATEIO com STATUS_FIN = Em Aberto.'],
-  totalBaixado: ['Valor baixado', 'money', CalendarCheck, 'Soma de VLRRATEIO com STATUS_FIN = Baixado.'],
+  totalBaixado: ['Valor baixado', 'money', CalendarCheck, 'Soma de VLRRATEIO com STATUS_FIN = Baixado ou Baixado Parcialmente.'],
   totalBaixadoParcialmente: ['Baixado parcialmente', 'money', Percent, 'Soma de VLRRATEIO com STATUS_FIN = Baixado Parcialmente.'],
   quantidadeTitulos: ['Quantidade de títulos', 'int', FileText, 'Contagem de títulos nos filtros atuais.'],
   ticketMedio: ['Ticket médio', 'money', Receipt, 'SUM(VLRRATEIO) dividido pela quantidade de títulos.'],

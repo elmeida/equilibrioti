@@ -151,7 +151,7 @@ router.get('/kpis', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN PAGREC = 'A Receber' THEN VLRRATEIO ELSE 0 END), 0)
           - COALESCE(SUM(CASE WHEN PAGREC = 'A Pagar' THEN VLRRATEIO ELSE 0 END), 0) AS saldoLiquido,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Em Aberto' THEN VLRRATEIO ELSE 0 END), 0) AS totalAberto,
-        COALESCE(SUM(CASE WHEN STATUS_FIN = 'Baixado' THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixado,
+        COALESCE(SUM(CASE WHEN STATUS_FIN IN ('Baixado', 'Baixado Parcialmente') THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixado,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Baixado Parcialmente' THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixadoParcialmente,
         COUNT_BIG(*) AS quantidadeTitulos,
         COALESCE(SUM(VLRRATEIO) / NULLIF(COUNT_BIG(*), 0), 0) AS ticketMedio,
