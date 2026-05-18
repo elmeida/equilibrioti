@@ -620,17 +620,20 @@ router.get('/filtros/:tipo', async (req, res, next) => {
     const pool = await getPoolForEmpresa(req.empresaId);
     const request = pool.request();
     const term = String(req.query.q || '').trim();
-    let where = `NULLIF(${field}, '') IS NOT NULL AND UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'`;
+    let where = `NULLIF(LTRIM(RTRIM(${field})), '') IS NOT NULL AND UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'`;
+    let order = 'value';
     if (term) {
       request.input('term', sql.NVarChar, `%${term}%`);
-      where += ` AND ${field} LIKE @term`;
+      request.input('termStart', sql.NVarChar, `${term}%`);
+      where += ` AND ${field} COLLATE Latin1_General_CI_AI LIKE @term`;
+      order = `CASE WHEN ${field} COLLATE Latin1_General_CI_AI LIKE @termStart THEN 0 ELSE 1 END, value`;
     }
     const result = await request.query(`
-      SELECT TOP (50) ${field} AS value, COUNT_BIG(*) AS total
+      SELECT ${field} AS value, COUNT_BIG(*) AS total
       FROM ${baseSubquery()}
       WHERE ${where}
       GROUP BY ${field}
-      ORDER BY value
+      ORDER BY ${order}
     `);
     const rows = jsonRows(result.recordset);
     setCache(cacheKey, rows, FILTER_TTL);

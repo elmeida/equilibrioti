@@ -4,6 +4,13 @@ import { apiGet, Filters } from '../services/api';
 
 type Option = { value: string; total: number };
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 const multiMap = [
   ['clientes', 'Cliente/Fornecedor', 'clientes'],
   ['centrosCusto', 'Centro de custo', 'centros-custo'],
@@ -38,14 +45,19 @@ export function FilterPanel({ filters, appliedFilters, onChange, onApply, onClea
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const searchSnapshot = { ...search };
     const timers = multiMap.map(([key, , endpoint]) => {
       return window.setTimeout(async () => {
-        const q = search[key] || '';
+        const q = searchSnapshot[key] || '';
         const values = await apiGet<Option[]>(`/api/titulos/filtros/${endpoint}`, undefined, q ? { q } : undefined);
-        setOptions((old) => ({ ...old, [key]: values }));
+        if (!cancelled) setOptions((old) => ({ ...old, [key]: values }));
       }, 500);
     });
-    return () => timers.forEach(window.clearTimeout);
+    return () => {
+      cancelled = true;
+      timers.forEach(window.clearTimeout);
+    };
   }, [search]);
 
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value });
@@ -169,13 +181,18 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
   onChange: (value: string[]) => void;
 }) {
   const visibleOptions = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearch(search.trim());
     const ranked = options
-      .filter((option) => !q || option.value.toLowerCase().includes(q))
+      .filter((option) => !q || normalizeSearch(option.value).includes(q))
       .sort((a, b) => {
         if (!q) return a.value.localeCompare(b.value, 'pt-BR');
-        const ai = a.value.toLowerCase().indexOf(q);
-        const bi = b.value.toLowerCase().indexOf(q);
+        const av = normalizeSearch(a.value);
+        const bv = normalizeSearch(b.value);
+        const ai = av.indexOf(q);
+        const bi = bv.indexOf(q);
+        const aStarts = av.startsWith(q) ? 0 : 1;
+        const bStarts = bv.startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
         return ai - bi || a.value.localeCompare(b.value);
       });
     return ranked;
