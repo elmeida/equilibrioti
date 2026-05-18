@@ -41,7 +41,7 @@ const endpointMap: Record<string, string> = {
   inconsistenciasResumo: '/api/titulos/inconsistencias/resumo',
 };
 
-export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number, enabled = true) {
+export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number, enabled = true, canViewInconsistencias = true) {
   const abortRef = useRef<AbortController | null>(null);
   const loadedSignatureRef = useRef('');
   const [refreshingLabel, setRefreshingLabel] = useState('');
@@ -59,7 +59,7 @@ export function useDashboardData(filters: Filters, activeTab: DashboardTab, refr
 
   const load = useCallback(async (force = false) => {
     if (!enabled) return;
-    const endpoints = tabEndpoints[activeTab];
+    const endpoints = (tabEndpoints[activeTab] || []).filter((endpoint) => canViewInconsistencias || !endpoint.startsWith('inconsistencias'));
     if (endpoints.length === 0) return;
     const signature = `${activeTab}:${JSON.stringify(filters)}`;
     if (!force && loadedSignatureRef.current === signature) return;
@@ -97,7 +97,7 @@ export function useDashboardData(filters: Filters, activeTab: DashboardTab, refr
       setIsUpdating(false);
       setRefreshingLabel('');
     }
-  }, [filters, activeTab, enabled]);
+  }, [filters, activeTab, enabled, canViewInconsistencias]);
 
   useEffect(() => {
     if (!enabled) return;

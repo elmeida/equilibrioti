@@ -476,6 +476,15 @@ input, select {
 .table-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .table-toolbar strong { display: inline-flex; align-items: center; gap: 7px; }
 .table-search { min-width: 260px; }
+.table-scroll-shell { display: grid; }
+.table-scroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.table-scroll-top > div { height: 1px; }
 .table-wrap { overflow: auto; max-height: 620px; scrollbar-width: thin; container-type: inline-size; }
 .controlled-scroll { border-top: 1px solid transparent; }
 table { min-width: 100%; width: max-content; border-collapse: separate; border-spacing: 0; font-size: 12px; table-layout: fixed; }

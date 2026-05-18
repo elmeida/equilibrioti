@@ -173,7 +173,7 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
     const ranked = options
       .filter((option) => !q || option.value.toLowerCase().includes(q))
       .sort((a, b) => {
-        if (!q) return Number(b.total || 0) - Number(a.total || 0);
+        if (!q) return a.value.localeCompare(b.value, 'pt-BR');
         const ai = a.value.toLowerCase().indexOf(q);
         const bi = b.value.toLowerCase().indexOf(q);
         return ai - bi || a.value.localeCompare(b.value);

@@ -10,6 +10,15 @@ const router = Router();
 router.use(requireEmpresa);
 const SHORT_TTL = 4 * 60 * 1000;
 const FILTER_TTL = 8 * 60 * 1000;
+const requiredViews = ['PBI_TITULOSFINANCEIRO', 'PBI_TITULOSFINANCEIRO_COL2'];
+const requiredColumns = [
+  'REF', 'CODCFO', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA',
+  'ORIGEM', 'HISTORICO', 'DTCRICAO', 'DTVENC', 'DTEMISSAO', 'DTBAIXA', 'ANO_VENC',
+  'MES_VENC', 'ANO_EMIS', 'MES_EMIS', 'ANO_BAIXA', 'MES_BAIXA', 'CODTDO', 'TIPODOC',
+  'CODCCUSTO', 'CCUSTO', 'CODNATFINANCEIRA', 'NATFINANCEIRA', 'VLRRATEIO', 'VLRBAIXA',
+  'VLRORIGINAL', 'VLRDESCONTO', 'VLRJUROS', 'VLRMULTA', 'VLRISS', 'VLRINSS',
+  'VLRDEVOLUCAO', 'VLRNOTACRED', 'VLRNCADIANT', 'VLRVINCULADO', 'NUMCHEQUE', 'CODCXA', 'CONTA',
+];
 
 async function runFiltered(req, sqlText, options = {}) {
   const ttl = options.ttl ?? SHORT_TTL;
@@ -39,6 +48,97 @@ function vencimentoBucket(req) {
     if (days >= 0 && days <= 31) return `CONVERT(char(10), DTVENC, 120)`;
   }
   return monthExpr('DTVENC');
+}
+
+async function validateFinancialStructure(req) {
+  const pool = await getPoolForEmpresa(req.empresaId);
+  const result = await pool.request().query(`
+    SELECT UPPER(TABLE_NAME) AS tableName
+    FROM INFORMATION_SCHEMA.VIEWS
+    WHERE UPPER(TABLE_NAME) IN (${requiredViews.map((view) => `'${view}'`).join(',')});
+
+    SELECT UPPER(TABLE_NAME) AS tableName, UPPER(COLUMN_NAME) AS columnName
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE UPPER(TABLE_NAME) IN (${requiredViews.map((view) => `'${view}'`).join(',')});
+  `);
+  const existingViews = new Set((result.recordsets[0] || []).map((row) => row.tableName));
+  const existingColumns = new Map();
+  for (const row of result.recordsets[1] || []) {
+    if (!existingColumns.has(row.tableName)) existingColumns.set(row.tableName, new Set());
+    existingColumns.get(row.tableName).add(row.columnName);
+  }
+
+  const alerts = [];
+  for (const view of requiredViews) {
+    if (!existingViews.has(view)) {
+      alerts.push(structureAlert('Crítico', 'View financeira ausente', `A view ${view} não existe na base da empresa.`, view, 'Criar ou corrigir a view no banco do cliente.'));
+      continue;
+    }
+    const columns = existingColumns.get(view) || new Set();
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) {
+        alerts.push(structureAlert('Crítico', 'Campo obrigatório ausente', `O campo ${column} não existe na view ${view}.`, `${view}.${column}`, 'Ajustar a view no banco do cliente para expor o campo obrigatório.'));
+      }
+    }
+  }
+  return alerts;
+}
+
+function structureAlert(severidade, tipo, explicacao, campo, sugestao) {
+  return {
+    severidade,
+    tipo,
+    explicacao,
+    EMPRESA: 'Estrutura do banco',
+    REF: null,
+    CLIFOR: null,
+    NUMERODOC: null,
+    PAGREC: null,
+    STATUS_FIN: null,
+    STATUS_BAIXA: null,
+    DTVENC: null,
+    DTBAIXA: null,
+    VLRRATEIO: null,
+    VLRBAIXA: null,
+    campo,
+    valorAtual: 'Não encontrado',
+    sugestao,
+  };
+}
+
+async function totalRateioOriginalAlert(req) {
+  const pool = await getPoolForEmpresa(req.empresaId);
+  const request = pool.request();
+  const where = buildFilters(req.query, request, 'tot');
+  const result = await request.query(`
+    SELECT
+      COALESCE(SUM(VLRRATEIO), 0) AS totalRateio,
+      COALESCE(SUM(VLRORIGINAL), 0) AS totalOriginal
+    FROM ${baseSubquery()}
+    WHERE ${where}
+  `);
+  const row = jsonRows(result.recordset)[0] || {};
+  const diff = Math.abs(Number(row.totalRateio || 0) - Number(row.totalOriginal || 0));
+  if (diff < 0.01) return [];
+  return [{
+    severidade: 'Crítico',
+    tipo: 'Total rateio diferente do original',
+    explicacao: 'A soma total de VLRRATEIO da base filtrada está diferente da soma total de VLRORIGINAL.',
+    EMPRESA: 'Base filtrada',
+    REF: null,
+    CLIFOR: null,
+    NUMERODOC: null,
+    PAGREC: null,
+    STATUS_FIN: null,
+    STATUS_BAIXA: null,
+    DTVENC: null,
+    DTBAIXA: null,
+    VLRRATEIO: row.totalRateio,
+    VLRBAIXA: null,
+    campo: 'VLRRATEIO/VLRORIGINAL',
+    valorAtual: `Rateio: ${row.totalRateio}; Original: ${row.totalOriginal}`,
+    sugestao: 'Conferir rateios e valores originais dos títulos na base filtrada.',
+  }];
 }
 
 router.get('/kpis', async (req, res, next) => {
@@ -401,6 +501,64 @@ function inconsistencySql(selectPrefix = '') {
 
 router.get('/inconsistencias/resumo', async (req, res, next) => {
   try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) {
+      const grouped = structureAlerts.reduce((acc, alert) => {
+        const key = `${alert.severidade}|${alert.tipo}`;
+        acc[key] ||= { severidade: alert.severidade, tipo: alert.tipo, quantidade: 0, registrosAfetados: 0 };
+        acc[key].quantidade += 1;
+        acc[key].registrosAfetados += 1;
+        return acc;
+      }, {});
+      return res.json(Object.values(grouped));
+    }
+    const rows = await runFiltered(req, `
+      SELECT severidade, tipo, COUNT_BIG(*) AS quantidade, COUNT_BIG(DISTINCT CONCAT(EMPRESA, '|', REF, '|', NUMERODOC)) AS registrosAfetados
+      ${inconsistencySql('')}
+      GROUP BY severidade, tipo
+    `);
+    const totalAlerts = await totalRateioOriginalAlert(req);
+    if (totalAlerts.length) rows.unshift({ severidade: 'Crítico', tipo: totalAlerts[0].tipo, quantidade: 1, registrosAfetados: 1 });
+    return res.json(rows);
+  } catch (err) { return next(err); }
+});
+
+router.get('/inconsistencias/v2', async (req, res, next) => {
+  try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) return res.json(structureAlerts);
+    const rows = await runFiltered(req, `
+      SELECT TOP (300)
+        severidade, tipo, explicacao, EMPRESA, REF, CLIFOR, NUMERODOC, PAGREC,
+        STATUS_FIN, STATUS_BAIXA, DTVENC, DTBAIXA, VLRRATEIO, VLRBAIXA,
+        campo, valorAtual, sugestao
+      ${inconsistencySql('')}
+      ORDER BY CASE severidade WHEN 'Crítico' THEN 1 WHEN 'Atenção' THEN 2 ELSE 3 END, tipo
+    `);
+    rows.unshift(...await totalRateioOriginalAlert(req));
+    return res.json(rows);
+  } catch (err) { return next(err); }
+});
+
+router.get('/inconsistencias', async (req, res, next) => {
+  try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) return res.json(structureAlerts);
+    const rows = await runFiltered(req, `
+      SELECT TOP (200)
+        severidade, tipo, explicacao, EMPRESA, REF, CLIFOR, NUMERODOC, PAGREC,
+        STATUS_FIN, STATUS_BAIXA, DTVENC, DTBAIXA, VLRRATEIO, VLRBAIXA,
+        campo, valorAtual, sugestao
+      ${inconsistencySql('')}
+      ORDER BY CASE severidade WHEN 'Crítico' THEN 1 WHEN 'Atenção' THEN 2 ELSE 3 END, tipo
+    `);
+    rows.unshift(...await totalRateioOriginalAlert(req));
+    return res.json(rows);
+  } catch (err) { return next(err); }
+});
+
+router.get('/inconsistencias/resumo', async (req, res, next) => {
+  try {
     const rows = await runFiltered(req, `
       SELECT severidade, tipo, COUNT_BIG(*) AS quantidade, COUNT_BIG(DISTINCT CONCAT(EMPRESA, '|', REF, '|', NUMERODOC)) AS registrosAfetados
       ${inconsistencySql('')}
@@ -462,7 +620,7 @@ router.get('/filtros/:tipo', async (req, res, next) => {
     const pool = await getPoolForEmpresa(req.empresaId);
     const request = pool.request();
     const term = String(req.query.q || '').trim();
-    let where = `NULLIF(${field}, '') IS NOT NULL`;
+    let where = `NULLIF(${field}, '') IS NOT NULL AND UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'`;
     if (term) {
       request.input('term', sql.NVarChar, `%${term}%`);
       where += ` AND ${field} LIKE @term`;
@@ -472,7 +630,7 @@ router.get('/filtros/:tipo', async (req, res, next) => {
       FROM ${baseSubquery()}
       WHERE ${where}
       GROUP BY ${field}
-      ORDER BY total DESC, value
+      ORDER BY value
     `);
     const rows = jsonRows(result.recordset);
     setCache(cacheKey, rows, FILTER_TTL);

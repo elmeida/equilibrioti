@@ -27,7 +27,7 @@ export function requireAuth(req, res, next) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (req.user?.perfil !== 'admin') {
+  if (!['admin', 'administrador'].includes(String(req.user?.perfil || '').toLowerCase())) {
     return res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
   }
   return next();
@@ -36,7 +36,7 @@ export function requireAdmin(req, res, next) {
 export function requireEmpresa(req, res, next) {
   let empresaId = req.user.empresa_id;
   if (req.user.perfil === 'admin') {
-    empresaId = req.headers['x-empresa-id'] || empresaId;
+    empresaId = req.headers['x-empresa-id'] || req.query.empresaId || empresaId;
   }
   if (!empresaId) {
     return res.status(400).json({ error: 'Empresa não selecionada ou não vinculada.' });

@@ -48,7 +48,8 @@ export function params(filters: Partial<Filters>, extra: Record<string, string |
 }
 
 export function cacheKey(path: string, filters?: Partial<Filters>, extra?: Record<string, string | number | undefined>) {
-  return `${path}?${filters ? params(filters, extra) : params({}, extra)}`;
+  const empresaId = localStorage.getItem('equilibrioti:active-empresa') || '';
+  return `${empresaId}:${path}?${filters ? params(filters, extra) : params({}, extra)}`;
 }
 
 export function clearApiCache(prefix = '') {
@@ -125,7 +126,8 @@ export async function apiGet<T>(
 
 export function exportUrl(filters: Filters) {
   const token = getAuthToken();
-  const query = params(filters, token ? { token } : {});
+  const empresaId = localStorage.getItem('equilibrioti:active-empresa') || undefined;
+  const query = params(filters, { ...(token ? { token } : {}), ...(empresaId ? { empresaId } : {}) });
   return `${API}/api/titulos/export?${query}`;
 }
 

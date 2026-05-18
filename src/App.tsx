@@ -93,6 +93,7 @@ export function App() {
 }
 
 export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }: { user: AuthUser, activeEmpresa: any, onStopImpersonate?: () => void, onLogout: () => void }) {
+  const isAdmin = ['admin', 'administrador'].includes(String(user.perfil).toLowerCase());
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [passwordModal, setPasswordModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
@@ -105,7 +106,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('geral');
   const [refreshKey, setRefreshKey] = useState(0);
-  const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user));
+  const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user), isAdmin);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -123,10 +124,20 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
     }).length;
   }, [filters]);
 
-  const applyFilters = () => setFilters(draftFilters);
+  const visibleTabs = useMemo(() => tabs.filter((tab) => isAdmin || tab.key !== 'inconsistencias'), [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin && activeTab === 'inconsistencias') setActiveTab('geral');
+  }, [isAdmin, activeTab]);
+
+  const applyFilters = () => {
+    setFilters(draftFilters);
+    setRefreshKey((key) => key + 1);
+  };
   const resetFilters = () => {
     setDraftFilters(defaultFilters);
     setFilters(defaultFilters);
+    setRefreshKey((key) => key + 1);
   };
   const chartFilter = (field: keyof Filters, value: string) => {
     const apply = (old: Filters) => {
@@ -234,7 +245,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           </section>
 
           <nav className="dashboard-tabs" aria-label="Seções do dashboard">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button key={tab.key} className={activeTab === tab.key ? 'active' : ''} onClick={() => setActiveTab(tab.key)}>
                 {tab.icon}
                 {tab.label}
@@ -249,7 +260,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           {activeTab === 'geral' && (
             <TabPanel eyebrow="Visão Geral" title="Resumo executivo" subtitle="Os indicadores mais importantes aparecem primeiro; análises detalhadas ficam nas abas ao lado.">
               <KpiCards data={data.kpis.data} loading={data.kpis.loading} keys={overviewKpis} emphasis />
-              <ExecutiveInsights insights={insights} quality={quality} onDetails={() => setActiveTab('inconsistencias')} />
+              <ExecutiveInsights insights={insights} quality={quality} onDetails={() => setActiveTab('inconsistencias')} showQuality={isAdmin} />
               <Charts data={data.charts.data} rankings={data.rankings.data} loading={data.charts.loading} filters={filters} onFilter={chartFilter} onClearFilter={clearContextFilter} visible={['evolucaoVencimento', 'pagarReceber', 'status', 'coligadas', 'topClientes', 'rankCentros', 'rankNaturezas', 'faixasVencimento']} />
             </TabPanel>
           )}
@@ -346,7 +357,7 @@ function TabPanel({ eyebrow, title, subtitle, children }: { eyebrow: string; tit
   );
 }
 
-function ExecutiveInsights({ insights, quality, onDetails }: { insights: { title: string; value: string; tone: string }[]; quality: ReturnType<typeof qualitySummary>; onDetails: () => void }) {
+function ExecutiveInsights({ insights, quality, onDetails, showQuality }: { insights: { title: string; value: string; tone: string }[]; quality: ReturnType<typeof qualitySummary>; onDetails: () => void; showQuality: boolean }) {
   return (
     <section className="insights-card insights-layout">
       <div>
@@ -361,7 +372,7 @@ function ExecutiveInsights({ insights, quality, onDetails }: { insights: { title
           </article>
         ))}
       </div>
-      <article className="quality-card">
+      {showQuality && <article className="quality-card">
         <div>
           <span className="eyebrow"><AlertTriangle size={15} /> Qualidade dos dados</span>
           <h3>Validações encontradas na base financeira filtrada</h3>
@@ -374,7 +385,7 @@ function ExecutiveInsights({ insights, quality, onDetails }: { insights: { title
           <strong>Total: {fmtInt(quality.total)}</strong>
         </div>
         <button className="ghost-button" onClick={onDetails}>Ver detalhes</button>
-      </article>
+      </article>}
     </section>
   );
 }
