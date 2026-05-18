@@ -72,13 +72,12 @@ export function CookieConsent() {
 
   return (
     <section className="cookie-consent" role="dialog" aria-live="polite" aria-label="Preferencias de cookies">
-      <div className="cookie-icon"><Cookie size={22} /></div>
       <div className="cookie-copy">
-        <strong>Privacidade e cookies</strong>
-        <p>
-          Usamos armazenamento essencial para login, seguranca, preferencias da sessao e funcionamento do Equilibrio BI.
-          Cookies analiticos sao opcionais e so serao usados com seu consentimento.
-        </p>
+        <div className="cookie-title">
+          <span className="cookie-icon"><Cookie size={22} /></span>
+          <strong>Privacidade e cookies</strong>
+        </div>
+        <p>Usamos dados essenciais para login, seguranca e funcionamento do Equilibrio BI. Cookies analiticos sao opcionais.</p>
         {preferencesOpen && (
           <div className="cookie-preferences">
             <label>
