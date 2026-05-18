@@ -29,14 +29,49 @@ const upload = multer({ storage });
 
 // --- EMPRESAS ---
 
+async function checkEmpresaConnection(empresa) {
+  if (!empresa.db_host || !empresa.db_database || !empresa.db_user || !empresa.db_password) {
+    return { db_connected: false, db_connection_status: 'Dados de conexão incompletos' };
+  }
+
+  let connection;
+  try {
+    connection = await new sql.ConnectionPool({
+      server: empresa.db_host,
+      port: Number(empresa.db_port || 1433),
+      database: empresa.db_database,
+      user: empresa.db_user,
+      password: empresa.db_password,
+      options: {
+        encrypt: Boolean(empresa.db_encrypt),
+        trustServerCertificate: empresa.db_trust_cert !== false,
+      },
+      connectionTimeout: 5000,
+      requestTimeout: 5000,
+    }).connect();
+
+    await connection.request().query('SELECT 1 as test');
+    return { db_connected: true, db_connection_status: 'Conectado' };
+  } catch (error) {
+    return { db_connected: false, db_connection_status: error.message || 'Falha na conexão' };
+  } finally {
+    if (connection) await connection.close().catch(() => {});
+  }
+}
+
 router.get('/empresas', async (_req, res, next) => {
   try {
     const pool = getAuthPool();
     const result = await pool.query(
-      `SELECT id, nome, logo_url, db_host, db_port, db_database, db_user, db_encrypt, db_trust_cert, criado_em 
+      `SELECT id, nome, logo_url, db_host, db_port, db_database, db_user, db_password, db_encrypt, db_trust_cert, criado_em 
        FROM ${schema}.empresas ORDER BY nome`
     );
-    res.json(result.rows);
+    const rows = await Promise.all(result.rows.map(async (empresa) => {
+      const status = await checkEmpresaConnection(empresa);
+      const { db_password, ...safeEmpresa } = empresa;
+      return { ...safeEmpresa, ...status };
+    }));
+    res.json(rows);
   } catch (error) { next(error); }
 });
 

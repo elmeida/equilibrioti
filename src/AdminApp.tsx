@@ -4,6 +4,10 @@ import { AuthUser, adminGetEmpresas, adminGetUsuarios, adminSaveEmpresa, adminSa
 import { Sidebar } from './components/Sidebar';
 import { fmtInt } from './utils/format';
 
+function sortByName(items: any[]) {
+  return [...items].sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
 export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, onImpersonate: (empresa: any) => void, onLogout: () => void }) {
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [sidebarOpen, setSidebarOpen] = useState(initialSidebarOpen);
@@ -126,7 +130,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
 
   const load = () => {
     setLoading(true);
-    adminGetEmpresas().then(setEmpresas).finally(() => setLoading(false));
+    adminGetEmpresas().then((items) => setEmpresas(sortByName(items))).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -147,22 +151,41 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
           <table className="admin-table">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Nome</th>
                 <th>Logo</th>
-                <th>Host (SQL Server)</th>
-                <th>Banco</th>
+                <th>Conexão com o banco</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {empresas.map(emp => (
                 <tr key={emp.id}>
-                  <td>{emp.id}</td>
                   <td><strong>{emp.nome}</strong></td>
-                  <td>{emp.logo_url && <img src={emp.logo_url} alt={emp.nome} style={{ height: 30, objectFit: 'contain' }} />}</td>
-                  <td>{emp.db_host}:{emp.db_port}</td>
-                  <td>{emp.db_database}</td>
+                  <td>
+                    {emp.logo_url ? (
+                      <img src={emp.logo_url} alt={emp.nome} style={{ height: 34, maxWidth: 160, objectFit: 'contain' }} />
+                    ) : (
+                      <span style={{ color: '#64748b' }}>Sem logo</span>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className="status-pill"
+                      title={emp.db_connection_status || (emp.db_connected ? 'Conectado' : 'Não conectado')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 10px',
+                        fontSize: 12,
+                        background: emp.db_connected ? '#dcfce7' : '#fee2e2',
+                        color: emp.db_connected ? '#166534' : '#991b1b',
+                      }}
+                    >
+                      {emp.db_connected ? <Check size={14} /> : <X size={14} />}
+                      {emp.db_connected ? 'Conectado' : 'Não conectado'}
+                    </span>
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button className="icon-button" title="Editar" onClick={() => setEditingEmpresa(emp)}><Edit2 size={16} /></button>
@@ -173,7 +196,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
                   </td>
                 </tr>
               ))}
-              {empresas.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20 }}>Nenhuma empresa cadastrada.</td></tr>}
+              {empresas.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20 }}>Nenhuma empresa cadastrada.</td></tr>}
             </tbody>
           </table>
         )}
