@@ -181,6 +181,13 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
     return ranked;
   }, [options, search]);
   const toggle = (value: string) => onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
+  const visibleValues = visibleOptions.map((option) => option.value);
+  const allVisibleSelected = visibleValues.length > 0 && visibleValues.every((value) => selected.includes(value));
+  const selectVisible = () => {
+    const next = Array.from(new Set([...selected, ...visibleValues]));
+    onChange(next);
+  };
+  const clearSelection = () => onChange([]);
 
   return (
     <div className={`multi-select ${open ? 'open' : ''}`} data-filter={id}>
@@ -188,8 +195,15 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
       {open && (
         <div className="multi-menu">
           <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder={`Pesquisar ${label.toLowerCase()}`} autoFocus />
+          <div className="multi-bulk-actions">
+            <button type="button" onClick={selectVisible} disabled={visibleOptions.length === 0 || allVisibleSelected}>
+              Selecionar todos
+            </button>
+            <button type="button" onClick={clearSelection} disabled={selected.length === 0}>
+              Remover seleção
+            </button>
+          </div>
           <div className="option-list">
-            {selected.length > 0 && <button onClick={() => onChange([])}>Limpar seleção</button>}
             {visibleOptions.map((option) => (
               <label key={option.value}>
                 <input type="checkbox" checked={selected.includes(option.value)} onChange={() => toggle(option.value)} />
