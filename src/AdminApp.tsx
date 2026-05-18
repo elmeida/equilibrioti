@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Building2, Users, ExternalLink, Plus, LayoutGrid, Menu, Moon, Sun, Activity, Edit2, KeyRound, Check, X, ShieldAlert, Upload } from 'lucide-react';
 import { AuthUser, adminGetEmpresas, adminGetUsuarios, adminSaveEmpresa, adminSaveUsuario, adminTestConnection, adminUploadLogo, adminResetPassword } from './services/api';
 import { Sidebar } from './components/Sidebar';
+import { CookieConsent } from './components/CookieConsent';
 import { fmtInt } from './utils/format';
 
 function sortByName(items: any[]) {
@@ -63,6 +64,7 @@ export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, on
           {activeTab === 'usuarios' && <UsuariosList />}
         </main>
       </div>
+      <CookieConsent />
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { FilterPanel } from './components/FilterPanel';
 import { KpiCards, type KpiKey } from './components/KpiCards';
 import { Charts, type ChartId } from './components/Charts';
 import { DataTables } from './components/DataTables';
+import { CookieConsent, openCookiePreferences } from './components/CookieConsent';
 import { useDashboardData } from './hooks/useDashboardData';
 import { changePassword, clearAuthToken, defaultFilters, exportUrl, Filters, getAuthToken, loadMe, type AuthUser } from './services/api';
 import { fmtInt, fmtMoney, fmtPercent, safe } from './utils/format';
@@ -336,10 +337,11 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           )}
         </main>
 
-        <footer>Desenvolvido por Equilíbrio TI</footer>
+        <footer><span>Desenvolvido por Equilibrio TI</span><button type="button" onClick={openCookiePreferences}>Preferencias de cookies</button></footer>
       </div>
       {passwordModal && <ChangePasswordModal onClose={() => setPasswordModal(false)} />}
       {installHelp && <InstallHelpModal onClose={() => setInstallHelp(false)} />}
+      <CookieConsent />
     </div>
   );
 }
