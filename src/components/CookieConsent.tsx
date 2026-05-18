@@ -71,38 +71,39 @@ export function CookieConsent() {
   if (!visible) return null;
 
   return (
-    <section className="cookie-consent" role="dialog" aria-live="polite" aria-label="Preferencias de cookies">
+    <section className="cookie-consent" role="dialog" aria-live="polite" aria-label="Preferências de cookies">
       <div className="cookie-copy">
         <div className="cookie-title">
           <span className="cookie-icon"><Cookie size={22} /></span>
           <strong>Privacidade e cookies</strong>
         </div>
-        <p>Usamos dados essenciais para login, seguranca e funcionamento do Equilibrio BI. Cookies analiticos sao opcionais.</p>
+        <p>
+          Usamos cookies essenciais para login, segurança e funcionamento do Equilíbrio BI.
+          Cookies analíticos são opcionais. <a href="/politica-privacidade.html" target="_blank" rel="noreferrer">Política de privacidade</a>
+        </p>
         {preferencesOpen && (
           <div className="cookie-preferences">
             <label>
               <input type="checkbox" checked disabled />
-              <span><b>Necessarios</b> Obrigatorios para autenticacao, seguranca e operacao do sistema.</span>
+              <span><b>Necessários</b> Obrigatórios para autenticação, segurança e operação do sistema.</span>
             </label>
             <label>
               <input type="checkbox" checked={analytics} onChange={(event) => setAnalytics(event.target.checked)} />
-              <span><b>Analiticos</b> Ajudam a entender uso e estabilidade da aplicacao, quando habilitados.</span>
+              <span><b>Analíticos</b> Ajudam a entender uso e estabilidade da aplicação, quando habilitados.</span>
             </label>
           </div>
         )}
       </div>
       <div className="cookie-actions">
+        <label className="cookie-toggle" title="Ativar ou desativar cookies analíticos">
+          <input type="checkbox" checked={analytics} onChange={(event) => setAnalytics(event.target.checked)} />
+          <span />
+          <b>Analíticos</b>
+        </label>
         <button type="button" className="ghost-button" onClick={() => setPreferencesOpen((value) => !value)}>
-          <Settings size={16} /> Preferencias
+          <Settings size={16} /> Detalhes
         </button>
-        {preferencesOpen ? (
-          <button type="button" className="ghost-button apply-button" onClick={savePreferences}>Salvar</button>
-        ) : (
-          <>
-            <button type="button" className="ghost-button" onClick={essentialOnly}>Somente necessarios</button>
-            <button type="button" className="ghost-button apply-button" onClick={acceptAll}>Aceitar todos</button>
-          </>
-        )}
+        <button type="button" className="ghost-button apply-button" onClick={savePreferences}>Salvar</button>
         <button type="button" className="icon-button" onClick={essentialOnly} aria-label="Fechar aviso de cookies">
           <X size={17} />
         </button>
