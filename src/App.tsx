@@ -77,7 +77,9 @@ export function App() {
     return <LoginScreen onLogin={setUser} />;
   }
 
-  if (user.perfil === 'admin' && !activeEmpresa) {
+  const isAdminUser = ['admin', 'administrador'].includes(String(user.perfil).toLowerCase());
+
+  if (isAdminUser && !activeEmpresa) {
     return <AdminApp user={user} onImpersonate={(emp) => {
       localStorage.setItem('equilibrioti:active-empresa', String(emp.id));
       localStorage.setItem('equilibrioti:active-empresa-data', JSON.stringify(emp));
@@ -85,7 +87,7 @@ export function App() {
     }} onLogout={logout} />;
   }
 
-  return <BIDashboard user={user} activeEmpresa={activeEmpresa} onStopImpersonate={user.perfil === 'admin' ? () => {
+  return <BIDashboard user={user} activeEmpresa={activeEmpresa} onStopImpersonate={isAdminUser ? () => {
     localStorage.removeItem('equilibrioti:active-empresa');
     localStorage.removeItem('equilibrioti:active-empresa-data');
     setActiveEmpresa(null);

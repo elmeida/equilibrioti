@@ -2,6 +2,10 @@ import jwt from 'jsonwebtoken';
 
 const jwtSecret = process.env.JWT_SECRET || 'change-this-secret';
 
+function isAdminProfile(perfil) {
+  return ['admin', 'administrador'].includes(String(perfil || '').toLowerCase());
+}
+
 export function signUser(user) {
   return jwt.sign(
     { sub: user.id, email: user.email, nome: user.nome, perfil: user.perfil, empresa_id: user.empresa_id },
@@ -27,20 +31,28 @@ export function requireAuth(req, res, next) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (!['admin', 'administrador'].includes(String(req.user?.perfil || '').toLowerCase())) {
+  if (!isAdminProfile(req.user?.perfil)) {
     return res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
   }
   return next();
 }
 
 export function requireEmpresa(req, res, next) {
+  const isAdmin = isAdminProfile(req.user?.perfil);
   let empresaId = req.user.empresa_id;
-  if (req.user.perfil === 'admin') {
-    empresaId = req.headers['x-empresa-id'] || req.query.empresaId || empresaId;
+
+  if (isAdmin) {
+    empresaId = req.headers['x-empresa-id'] || req.query.empresaId || req.query.empresa_id || empresaId;
   }
+
   if (!empresaId) {
-    return res.status(400).json({ error: 'Empresa não selecionada ou não vinculada.' });
+    return res.status(400).json({
+      error: isAdmin
+        ? 'Selecione uma empresa para acessar os dados financeiros.'
+        : 'Usuário não vinculado a nenhuma empresa.',
+    });
   }
+
   req.empresaId = empresaId;
   next();
 }
