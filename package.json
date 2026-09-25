@@ -4,11 +4,34 @@
   "private": true,
   "description": "Dashboard web Equilíbrio BI integrado ao TOTVS RM.",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0",
+    "npm": ">=10"
+  },
   "scripts": {
-    "dev": "concurrently \"npm:server\" \"npm:client\"",
+    "local:prepare": "node scripts/local-dev.mjs prepare",
+    "local:check": "node scripts/local-dev.mjs check",
+    "local:server": "node scripts/local-dev.mjs server",
+    "local:client": "node scripts/local-dev.mjs client",
+    "local:init": "node scripts/local-dev.mjs init",
+    "local:migrate": "node scripts/local-dev.mjs migrate",
+    "local:test": "node scripts/local-dev.mjs test",
+    "demo": "vite --mode demo --host 127.0.0.1",
+    "dev": "concurrently \"npm:local:server\" \"npm:local:client\"",
     "client": "vite --host 0.0.0.0",
     "server": "node --watch server/index.js",
-    "build": "tsc --noEmit && vite build",
+    "db:migrate": "node server/db/migrate.js",
+    "db:init": "node server/db/init.js",
+    "db:check": "node server/db/check.js",
+    "db:credentials": "node server/db/credentials.js",
+    "sources:inspect": "node scripts/inspect-sources.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && npm run bundle:check",
+    "bundle:check": "node scripts/check-bundle.mjs",
+    "audit:high": "npm audit --audit-level=high",
+    "ci:check": "npm run test && npm run build && npm run audit:high",
     "preview": "vite preview --host 0.0.0.0",
     "start": "NODE_ENV=production node server/index.js"
   },
@@ -16,9 +39,11 @@
     "@vitejs/plugin-react": "^5.1.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
+    "decimal.js-light": "2.5.1",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.561.0",
     "mssql": "^12.2.0",
@@ -27,13 +52,21 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
+    "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",
     "zod": "^4.2.0"
   },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.10"
   }
 }

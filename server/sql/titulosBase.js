@@ -1,9 +1,4 @@
-export const DATE_FIELDS = {
-  vencimento: 'DTVENC',
-  emissao: 'DTEMISSAO',
-  baixa: 'DTBAIXA',
-  criacao: 'DTCRICAO',
-};
+export { DATE_FIELDS } from '../utils/dateFilters.js';
 
 export const ORDER_FIELDS = {
   EMPRESA: 'EMPRESA',
@@ -25,8 +20,19 @@ export const ORDER_FIELDS = {
   VLRRATEIO: 'VLRRATEIO',
   VLRBAIXA: 'VLRBAIXA',
   VLRORIGINAL: 'VLRORIGINAL',
+  VLRDESCONTO: 'VLRDESCONTO',
+  VLRJUROS: 'VLRJUROS',
+  VLRMULTA: 'VLRMULTA',
   CONTA: 'CONTA',
 };
+
+export function titulosOrder(query) {
+  const field = Object.hasOwn(ORDER_FIELDS, query.sortBy) ? ORDER_FIELDS[query.sortBy] : 'DTVENC';
+  const direction = String(query.sortDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  // Available source keys reduce ties; uniqueness still requires the RM view contract.
+  const secondary = ['CODCOLIGADA', 'REF', 'CODCFO', 'NUMERODOC', 'CODCCUSTO', 'CODNATFINANCEIRA', 'VLRRATEIO', 'VLRBAIXA'];
+  return [`${field} ${direction}`, ...secondary.filter(key => key !== field).map(key => `${key} ASC`)].join(', ');
+}
 
 const field = (column) => `V.${column} AS ${column}`;
 const money = (column) => `TRY_CONVERT(decimal(19, 4), V.${column}) AS ${column}`;

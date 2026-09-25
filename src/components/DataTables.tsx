@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Download, FileWarning, Search, Settings2 } from 'lucide-react';
-import { apiGet, exportUrl, Filters } from '../services/api';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Download, FileWarning, RefreshCw, Search, Settings2 } from 'lucide-react';
+import { apiGet, downloadTitulosExport, Filters } from '../services/api';
 import { fmtDate, fmtInt, fmtMoney, fmtPercent, safe } from '../utils/format';
+import { RemoteBlock } from './RemoteBlock';
+import { ExpandablePanel } from './ExpandablePanel';
+import type { BlockState } from '../hooks/dashboardState';
 
 type TableResponse = { total: number; page: number; pageSize: number; rows: any[] };
 export type TableMode = 'analitica' | 'rankings' | 'vencidos' | 'inconsistencias' | 'pagarReceber';
@@ -18,6 +21,7 @@ export function DataTables({
   vencidos,
   inconsistencias,
   mode,
+  blocks, retry,
 }: {
   filters: Filters;
   rankings: Record<string, any[]>;
@@ -25,38 +29,40 @@ export function DataTables({
   vencidos: any[];
   inconsistencias: any[];
   mode: TableMode;
+  blocks?: Record<string, BlockState>; retry?: (key: string) => void;
 }) {
+  const wrap = (key: string, title: string, content: ReactNode) => <RemoteBlock key={key} state={blocks?.[key]} title={title} retry={() => retry?.(key)}>{content}</RemoteBlock>;
   if (mode === 'rankings') {
     return (
       <section className="tables-section">
-        <div className="rank-grid">
-          <Ranking title="Ranking por cliente/fornecedor" rows={rankings.clientes || []} name="CLIFOR" />
-          <Ranking title="Ranking por centro de custo" rows={rankings.centros || []} name="CCUSTO" />
-          <Ranking title="Ranking por natureza financeira" rows={rankings.naturezas || []} name="NATFINANCEIRA" />
+        <div className="rank-grid ranking-details-grid">
+          {wrap('clientes', 'Ranking por cliente/fornecedor', <Ranking title="Ranking por cliente/fornecedor" rows={rankings.clientes || []} name="CLIFOR" />)}
+          {wrap('centros', 'Ranking por centro de custo', <Ranking title="Ranking por centro de custo" rows={rankings.centros || []} name="CCUSTO" />)}
+          {wrap('naturezas', 'Ranking por natureza financeira', <Ranking title="Ranking por natureza financeira" rows={rankings.naturezas || []} name="NATFINANCEIRA" />)}
         </div>
         <div className="rank-grid">
-          <SimpleTable title="Ranking por conta" rows={chartRankings.contas || []} columns={['nome', 'valor', 'quantidade']} />
-          <SimpleTable title="Ranking por tipo de documento" rows={chartRankings.tiposDocumento || []} columns={['nome', 'valor', 'quantidade']} />
-          <SimpleTable title="Ranking por origem" rows={chartRankings.origens || []} columns={['nome', 'valor', 'quantidade']} />
+          {wrap('contas', 'Ranking por conta', <SimpleTable title="Ranking por conta" rows={chartRankings.contas || []} columns={['nome', 'valor', 'quantidade']} />)}
+          {wrap('tiposDocumento', 'Ranking por tipo de documento', <SimpleTable title="Ranking por tipo de documento" rows={chartRankings.tiposDocumento || []} columns={['nome', 'valor', 'quantidade']} />)}
+          {wrap('origens', 'Ranking por origem', <SimpleTable title="Ranking por origem" rows={chartRankings.origens || []} columns={['nome', 'valor', 'quantidade']} />)}
         </div>
       </section>
     );
   }
 
   if (mode === 'vencidos') {
-    return <SimpleTable title="Tabela de títulos vencidos" rows={vencidos} columns={['EMPRESA', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'DTVENC', 'diasAtraso', 'VLRRATEIO', 'STATUS_FIN', 'CCUSTO', 'NATFINANCEIRA']} />;
+    return wrap('vencidos', 'Tabela de títulos vencidos', <SimpleTable title="Tabela de títulos vencidos" rows={vencidos} columns={['EMPRESA', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'DTVENC', 'diasAtraso', 'VLRRATEIO', 'STATUS_FIN', 'CCUSTO', 'NATFINANCEIRA']} />);
   }
 
   if (mode === 'inconsistencias') {
-    return <InconsistencyTable rows={inconsistencias} />;
+    return wrap('inconsistencias', 'Lista de inconsistências', <InconsistencyTable rows={inconsistencias} />);
   }
 
   if (mode === 'pagarReceber') {
     const rows = (chartRankings.pagarReceber || []).map((row) => ({ tipo: row.nome, total: row.valor, quantidade: row.quantidade, contexto: 'Valores filtrados na base atual' }));
-    return <SimpleTable title="Resumo por tipo financeiro" rows={rows} columns={['tipo', 'total', 'quantidade', 'contexto']} />;
+    return wrap('pagarReceber', 'Resumo por tipo financeiro', <SimpleTable title="Resumo por tipo financeiro" rows={rows} columns={['tipo', 'total', 'quantidade', 'contexto']} />);
   }
 
-  return <AnalyticalTable filters={filters} />;
+  return <AnalyticalTable key={JSON.stringify(filters)} filters={filters} />;
 }
 
 function AnalyticalTable({ filters }: { filters: Filters }) {
@@ -67,19 +73,49 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
   const [search, setSearch] = useState(filters.search || '');
   const [visibleCols, setVisibleCols] = useState<string[]>(columns);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const exportRequest = useRef<AbortController | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    setExportError('');
+    setExporting(false);
+    return () => {
+      exportRequest.current?.abort();
+      exportRequest.current = null;
+    };
+  }, [filters, search, sortBy, sortDir]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      const response = await apiGet<TableResponse>('/api/titulos/tabela', { ...filters, search }, { page: table.page, pageSize: table.pageSize, sortBy, sortDir }, { cache: false });
-      setTable(response);
-      setLoading(false);
+      let relocating = false;
+      try {
+        const response = await apiGet<TableResponse>('/api/titulos/tabela', { ...filters, search }, { page: table.page, pageSize: table.pageSize, sortBy, sortDir }, { cache: false, signal: controller.signal });
+        if (!controller.signal.aborted) {
+          const lastPage = Math.max(Math.ceil(response.total / response.pageSize), 1);
+          relocating = response.page > lastPage;
+          setTable(relocating ? { ...response, page: lastPage, rows: [] } : response);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted && !(err instanceof Error && err.name === 'AbortError')) {
+          setError(err instanceof Error ? err.message : 'Não foi possível carregar a tabela.');
+          setTable(old => ({ ...old, rows: [] }));
+        }
+      } finally {
+        if (!controller.signal.aborted && !relocating) setLoading(false);
+      }
     }, 300);
-    return () => window.clearTimeout(timer);
-  }, [filters, search, table.page, table.pageSize, sortBy, sortDir]);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [filters, search, table.page, table.pageSize, sortBy, sortDir, retry]);
 
   const pageCount = Math.max(Math.ceil(table.total / table.pageSize), 1);
   const changeSort = (col: string) => {
+    setTable(old => ({ ...old, page: 1 }));
     setSortBy(col);
     setSortDir((dir) => sortBy === col && dir === 'DESC' ? 'ASC' : 'DESC');
   };
@@ -87,14 +123,31 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
     const term = (columnFilters[col] || '').trim().toLowerCase();
     return !term || String(row[col] ?? '').toLowerCase().includes(term);
   }));
+  const exportData = async () => {
+    exportRequest.current?.abort();
+    const controller = new AbortController();
+    exportRequest.current = controller;
+    setExportError('');
+    setExporting(true);
+    try {
+      await downloadTitulosExport({ ...filters, search }, { sortBy, sortDir, signal: controller.signal });
+    } catch (err) {
+      if (!controller.signal.aborted && !(err instanceof Error && err.name === 'AbortError')) setExportError(err instanceof Error ? err.message : 'Não foi possível exportar os dados.');
+    } finally {
+      if (exportRequest.current === controller) {
+        exportRequest.current = null;
+        setExporting(false);
+      }
+    }
+  };
 
   return (
     <section className="tables-section">
-      <article className="table-card">
+      <ExpandablePanel title="Tabela analítica de títulos financeiros" className="table-card">
         <div className="table-toolbar">
           <div>
             <strong>Tabela analítica de títulos financeiros</strong>
-            <span>{fmtInt(table.total)} registros filtrados, paginação server-side</span>
+            <span>{loading ? 'Carregando...' : error ? 'Consulta indisponível' : `${fmtInt(table.total)} registros filtrados`}</span>
           </div>
           <div className="table-actions">
             <label className="table-search"><Search size={16} /><input value={search} onChange={(e) => { setSearch(e.target.value); setTable((old) => ({ ...old, page: 1 })); }} placeholder="Buscar na tabela" /></label>
@@ -113,31 +166,33 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
                 ))}
               </div>
             </details>
-            <a className="ghost-button" href={exportUrl(filters)} target="_blank" rel="noreferrer"><Download size={16} /> Exportar dados filtrados</a>
+            <button className="ghost-button" onClick={exportData} disabled={exporting || loading || Boolean(error)}><Download size={16} /> {exporting ? 'Exportando...' : 'Exportar dados filtrados'}</button>
           </div>
         </div>
+        {exportError && <div className="error-box" role="alert">{exportError}</div>}
+        {error && <div className="error-box" role="alert">{error} <button className="icon-button" title="Tentar novamente" aria-label="Tentar novamente" onClick={() => setRetry(value => value + 1)}><RefreshCw size={16} /></button></div>}
         <TableScroll className="controlled-scroll">
           <table>
             <thead>
               <tr>
                 <th />
-                {visibleCols.map((col) => <th key={col}><button onClick={() => changeSort(col)}>{col}<ChevronsUpDown size={13} /></button></th>)}
+                {visibleCols.map((col) => <th key={col} aria-sort={sortBy === col ? (sortDir === 'ASC' ? 'ascending' : 'descending') : 'none'}><button onClick={() => changeSort(col)}>{col}<ChevronsUpDown size={13} /></button></th>)}
               </tr>
 
             </thead>
             <tbody>
               {loading && <tr><td colSpan={visibleCols.length + 1}>Carregando dados...</td></tr>}
-              {!loading && table.rows.length === 0 && <tr><td colSpan={visibleCols.length + 1}>Nenhum dado encontrado para os filtros atuais.</td></tr>}
-              {!loading && filteredRows.map((row, index) => <ExpandableRow key={`${row.EMPRESA}-${row.REF}-${row.NUMERODOC}-${index}`} row={row} visibleCols={visibleCols} />)}
+              {!loading && !error && table.rows.length === 0 && <tr><td colSpan={visibleCols.length + 1}>Nenhum dado encontrado para os filtros atuais.</td></tr>}
+              {!loading && !error && filteredRows.map((row, index) => <ExpandableRow key={`${row.EMPRESA}-${row.REF}-${row.NUMERODOC}-${index}`} row={row} visibleCols={visibleCols} />)}
             </tbody>
           </table>
         </TableScroll>
         <div className="pagination">
-          <button className="icon-button" disabled={table.page <= 1} onClick={() => setTable((old) => ({ ...old, page: old.page - 1 }))}><ChevronLeft size={18} /></button>
+          <button className="icon-button" aria-label="Página anterior" disabled={loading || Boolean(error) || table.page <= 1} onClick={() => setTable((old) => ({ ...old, page: old.page - 1 }))}><ChevronLeft size={18} /></button>
           <span>Página {table.page} de {pageCount}</span>
-          <button className="icon-button" disabled={table.page >= pageCount} onClick={() => setTable((old) => ({ ...old, page: old.page + 1 }))}><ChevronRight size={18} /></button>
+          <button className="icon-button" aria-label="Próxima página" disabled={loading || Boolean(error) || table.page >= pageCount} onClick={() => setTable((old) => ({ ...old, page: old.page + 1 }))}><ChevronRight size={18} /></button>
         </div>
-      </article>
+      </ExpandablePanel>
     </section>
   );
 }
@@ -211,7 +266,7 @@ function TableScroll({ children, className = '' }: { children: ReactNode; classN
 
   return (
     <div className="table-scroll-shell">
-      <div className="table-scroll-top" ref={topRef} onScroll={syncFromTop}><div style={{ width }} /></div>
+      <div className="table-scroll-top" ref={topRef} onScroll={syncFromTop} tabIndex={0} role="region" aria-label="Rolagem horizontal da tabela"><div style={{ width }} /></div>
       <div className={`table-wrap ${className}`} ref={bodyRef} onScroll={syncFromBody}>{children}</div>
     </div>
   );
@@ -219,13 +274,14 @@ function TableScroll({ children, className = '' }: { children: ReactNode; classN
 
 function Ranking({ title, rows, name }: { title: string; rows: any[]; name: string }) {
   return (
-    <article className="table-card small">
+    <ExpandablePanel title={title} className="table-card small ranking-table">
       <div className="table-toolbar"><div><strong>{title}</strong><span>Top 50 por VLRRATEIO</span></div></div>
       <TableScroll>
         <table>
           <thead><tr><th>{name}</th><th>Qtd.</th><th>Total</th><th>Baixa</th><th>Aberto</th><th>Vencido</th><th>Ticket</th><th>%</th></tr></thead>
           <tbody>
-            {rows.slice(0, 20).map((row) => (
+            {rows.length === 0 && <tr><td colSpan={8}>Sem registros neste recorte.</td></tr>}
+            {rows.slice(0, 50).map((row) => (
               <tr key={row.nome}>
                 <td>{safe(row.nome)}</td>
                 <td>{fmtInt(row.quantidade)}</td>
@@ -240,7 +296,7 @@ function Ranking({ title, rows, name }: { title: string; rows: any[]; name: stri
           </tbody>
         </table>
       </TableScroll>
-    </article>
+    </ExpandablePanel>
   );
 }
 
@@ -248,7 +304,7 @@ function SimpleTable({ title, rows, columns: tableColumns, icon }: { title: stri
   const [term, setTerm] = useState('');
   const filteredRows = rows.filter((row) => !term || tableColumns.some((col) => String(row[col] ?? '').toLowerCase().includes(term.toLowerCase())));
   return (
-    <article className="table-card small">
+    <ExpandablePanel title={title} className="table-card small">
       <div className="table-toolbar">
         <div><strong>{icon}{title}</strong><span>{fmtInt(filteredRows.length)} registros exibidos</span></div>
         <label className="table-search"><Search size={16} /><input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Filtrar tabela" /></label>
@@ -262,7 +318,7 @@ function SimpleTable({ title, rows, columns: tableColumns, icon }: { title: stri
           </tbody>
         </table>
       </TableScroll>
-    </article>
+    </ExpandablePanel>
   );
 }
 
@@ -278,7 +334,7 @@ function InconsistencyTable({ rows }: { rows: any[] }) {
       && (!term || text.includes(term.toLowerCase()));
   });
   return (
-    <article className="table-card small">
+    <ExpandablePanel title="Tabela de inconsistências" className="table-card small">
       <div className="table-toolbar">
         <div><strong><FileWarning size={17} />Tabela de inconsistências</strong><span>{fmtInt(filtered.length)} registros exibidos</span></div>
       </div>
@@ -290,10 +346,10 @@ function InconsistencyTable({ rows }: { rows: any[] }) {
       <TableScroll>
         <table>
           <thead><tr>{['severidade', 'tipo', 'explicacao', 'EMPRESA', 'REF', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA', 'DTVENC', 'DTBAIXA', 'VLRRATEIO', 'VLRBAIXA', 'campo', 'valorAtual', 'sugestao'].map((col) => <th key={col}>{col}</th>)}</tr></thead>
-          <tbody>{filtered.map((row, i) => <tr key={i}>{['severidade', 'tipo', 'explicacao', 'EMPRESA', 'REF', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA', 'DTVENC', 'DTBAIXA', 'VLRRATEIO', 'VLRBAIXA', 'campo', 'valorAtual', 'sugestao'].map((col) => <td key={col}>{formatCell(col, row[col])}</td>)}</tr>)}</tbody>
+          <tbody>{filtered.length === 0 && <tr><td colSpan={17}>Sem registros neste recorte.</td></tr>}{filtered.map((row, i) => <tr key={i}>{['severidade', 'tipo', 'explicacao', 'EMPRESA', 'REF', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA', 'DTVENC', 'DTBAIXA', 'VLRRATEIO', 'VLRBAIXA', 'campo', 'valorAtual', 'sugestao'].map((col) => <td key={col}>{formatCell(col, row[col])}</td>)}</tr>)}</tbody>
         </table>
       </TableScroll>
-    </article>
+    </ExpandablePanel>
   );
 }
 

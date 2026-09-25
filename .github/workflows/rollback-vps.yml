@@ -1,0 +1,61 @@
+name: Rollback - VPS Homologacao
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Release conhecido e compativel com o schema atual (obrigatorio)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equilibrio-bi-homologacao
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback em VPS de homologacao
+    if: >-
+      vars.HML_CD_ENABLED == 'true' && github.repository == 'elmeida/equilibrioti' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: homologation
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Configurar SSH verificado
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_APP_PATH: ${{ secrets.VPS_APP_PATH }}
+        run: bash scripts/setup-deploy-ssh.sh
+
+      - name: Executar rollback
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_APP_PATH: ${{ secrets.VPS_APP_PATH }}
+          VPS_SERVICE_NAME: equilibrioti
+          VPS_NODE_BIN: /opt/atenza/equilibrio-bi/node-v22.23.2-linux-x64/bin
+          APP_HEALTHCHECK_URL: https://equilibrio-bi-homologacao.atenza.digital/api/health
+          ROLLBACK_RELEASE_ID: ${{ inputs.release_id }}
+        run: bash scripts/rollback-vps.sh
+
+      - name: Remover chave temporaria do runner
+        if: always()
+        run: rm -f "$HOME/.ssh/equilibrio_bi_deploy_key"

@@ -1,7 +1,7 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 
 const { Pool } = pg;
 
@@ -22,4 +22,10 @@ export function getAuthPool() {
   }
 
   return authPool;
+}
+
+export async function closeAuthPool() {
+  if (!authPool) return;
+  await authPool.end();
+  authPool = undefined;
 }

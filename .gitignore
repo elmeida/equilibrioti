@@ -1,7 +1,31 @@
 node_modules/
 dist/
 .env
+.env.local
+.env.development
+.env.production
+.env.*.local
 .dev-pids
 npm-debug.log*
+coverage/
+.vite/
 
 server/uploads/
+
+# Local source inspection may contain customer names and schema metadata.
+/tmp/source-inspection/
+
+# Local-only credentials, database evidence and backups.
+/.local/
+
+# Generated evidence, internal reports and one-off operations are not public source.
+/tmp/
+/output/
+/scripts/hml/
+/docs/relatorio-acompanhamento-*.md
+.env.*
+!.env.example
+*.dump
+*.backup
+*.pem
+*.key

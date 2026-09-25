@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, Eraser, Search } from 'lucide-react';
 import { apiGet, Filters } from '../services/api';
+import { currentPeriod, dateFilterError } from '../../server/utils/dateFilters.js';
 
 type Option = { value: string; total: number };
 
@@ -31,54 +32,51 @@ export function FilterPanel({ filters, appliedFilters, onChange, onApply, onClea
   const [options, setOptions] = useState<Record<string, Option[]>>({});
   const [search, setSearch] = useState<Record<string, string>>({});
   const [openKey, setOpenKey] = useState<string>('');
+  const dateError = dateFilterError(filters);
+  const dateErrorId = useId();
+  const panel = useRef<HTMLDivElement>(null);
+  const apply = () => {
+    const inputs = panel.current?.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    if (!dateError && inputs && [...inputs].every(input => input.reportValidity())) onApply();
+  };
 
   useEffect(() => {
+    const controller = new AbortController();
     const loadStatic = async () => {
       const [statusFin, statusBaixa, empresas] = await Promise.all([
-        apiGet<Option[]>('/api/titulos/filtros/status'),
-        apiGet<Option[]>('/api/titulos/filtros/status-baixa'),
-        apiGet<Option[]>('/api/titulos/filtros/empresas'),
+        apiGet<Option[]>('/api/titulos/filtros/status', undefined, undefined, { signal: controller.signal }),
+        apiGet<Option[]>('/api/titulos/filtros/status-baixa', undefined, undefined, { signal: controller.signal }),
+        apiGet<Option[]>('/api/titulos/filtros/empresas', undefined, undefined, { signal: controller.signal }),
       ]);
-      setOptions((old) => ({ ...old, statusFin, statusBaixa, empresas }));
+      if (!controller.signal.aborted) setOptions((old) => ({ ...old, statusFin, statusBaixa, empresas }));
     };
     loadStatic().catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    const searchSnapshot = { ...search };
+    const controller = new AbortController();
     const timers = multiMap.map(([key, , endpoint]) => {
       return window.setTimeout(async () => {
-        const q = searchSnapshot[key] || '';
-        const values = await apiGet<Option[]>(`/api/titulos/filtros/${endpoint}`, undefined, q ? { q } : undefined);
-        if (!cancelled) setOptions((old) => ({ ...old, [key]: values }));
+        const q = search[key] || '';
+        try {
+          const values = await apiGet<Option[]>(`/api/titulos/filtros/${endpoint}`, undefined, q ? { q } : undefined, { signal: controller.signal });
+          if (!controller.signal.aborted) setOptions((old) => ({ ...old, [key]: values }));
+        } catch {
+          if (!controller.signal.aborted) setOptions(old => ({ ...old, [key]: [] }));
+        }
       }, 500);
     });
-    return () => {
-      cancelled = true;
-      timers.forEach(window.clearTimeout);
-    };
+    return () => { timers.forEach(window.clearTimeout); controller.abort(); };
   }, [search]);
 
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value });
   const setPeriod = (preset: 'year' | 'month') => {
-    const today = new Date();
-    const start = preset === 'year'
-      ? new Date(today.getFullYear(), 0, 1)
-      : new Date(today.getFullYear(), today.getMonth(), 1);
-    const periodEnd = preset === 'year'
-      ? new Date(today.getFullYear(), 11, 31)
-      : new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    const end = periodEnd > today ? today : periodEnd;
-    onChange({
-      ...filters,
-      startDate: formatInputDate(start),
-      endDate: formatInputDate(end),
-    });
+    onChange({ ...filters, ...currentPeriod(preset) });
   };
 
   return (
-    <div className="filters-card">
+    <div className="filters-card" ref={panel}>
       <div className="filters-title">
         <div>
           <strong>Filtros globais</strong>
@@ -90,11 +88,12 @@ export function FilterPanel({ filters, appliedFilters, onChange, onApply, onClea
         <div className="filter-actions">
           <button className="ghost-button period-shortcut" onClick={() => setPeriod('year')}>Este ano</button>
           <button className="ghost-button period-shortcut" onClick={() => setPeriod('month')}>Este mês</button>
-          <button className="ghost-button apply-button" onClick={onApply}><Check size={16} /> Aplicar filtros</button>
+          <button className="ghost-button apply-button" disabled={!!dateError} onClick={apply}><Check size={16} /> Aplicar filtros</button>
           <button className="ghost-button" onClick={onClear}><Eraser size={16} /> Limpar filtros</button>
         </div>
       </div>
 
+      {dateError && <p className="error-box" id={dateErrorId} role="alert">{dateError}</p>}
       <div className="filters-grid">
         <label>
           Campo de data
@@ -105,8 +104,8 @@ export function FilterPanel({ filters, appliedFilters, onChange, onApply, onClea
             <option value="criacao">Data de criação</option>
           </select>
         </label>
-        <label>Data inicial<input type="date" value={filters.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
-        <label>Data final<input type="date" value={filters.endDate} onChange={(e) => set('endDate', e.target.value)} /></label>
+        <label>Data inicial<input type="date" min="0001-01-01" max="9999-12-31" aria-invalid={!!dateError} aria-describedby={dateError ? dateErrorId : undefined} value={filters.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
+        <label>Data final<input type="date" min="0001-01-01" max="9999-12-30" aria-invalid={!!dateError} aria-describedby={dateError ? dateErrorId : undefined} value={filters.endDate} onChange={(e) => set('endDate', e.target.value)} /></label>
         <label>
           Empresa
           <select value={filters.coligada} onChange={(e) => set('coligada', e.target.value)}>
@@ -160,13 +159,6 @@ export function FilterPanel({ filters, appliedFilters, onChange, onApply, onClea
       </div>
     </div>
   );
-}
-
-function formatInputDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function MultiSelect({ id, label, selected, options, search, open, onOpen, onSearch, onChange }: {
