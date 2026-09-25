@@ -5,9 +5,10 @@ Produto white label Equilibrio TI; governanca Atenza. Ambiente atual: homologaca
 ## Versao de trabalho
 
 O trabalho local validado em 25/09/2026 e compartilhado em `atenza/consolidacao-validada-20260925`.
-A base desta branch e `0cec5ad`. A `main` remota observada e `34fea20`, com dez commits adicionais.
+A base inicial desta branch era `0cec5ad`. Os dez commits da `main` ate `34fea20` foram
+conciliados em 25/09/2026, preservando os dois historicos. A PR #1 permanece em revisao,
+sem merge na `main` e sem deploy. [Decisoes e verificacoes](docs/registro-etapa-2026-09-25-integracao-main.md).
 Nao substituir uma versao pela outra, nem resolver conflitos automaticamente escolhendo um lado.
-A proposta de integracao permanece em rascunho ate conciliar as mudancas e repetir os testes.
 
 ```powershell
 git fetch origin

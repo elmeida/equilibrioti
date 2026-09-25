@@ -3,9 +3,9 @@ import { apiGet, Filters } from '../services/api';
 import { endpointMap, pendingState, projectDashboard, replaceBlock, tabEndpoints, validateBlock, type DashboardState, type DashboardTab } from './dashboardState';
 export type { DashboardTab } from './dashboardState';
 
-export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number, enabled = true) {
-  const scope = JSON.stringify([filters, activeTab, refreshKey, enabled]);
-  const keys = enabled ? tabEndpoints[activeTab] : [];
+export function useDashboardData(filters: Filters, activeTab: DashboardTab, refreshKey: number, enabled = true, canViewInconsistencias = false) {
+  const scope = JSON.stringify([filters, activeTab, refreshKey, enabled, canViewInconsistencias]);
+  const keys = enabled ? tabEndpoints[activeTab].filter(key => canViewInconsistencias || !key.startsWith('inconsistencias')) : [];
   const [state, setState] = useState<DashboardState>(() => pendingState(scope, keys));
   const active = useRef({ scope: '', controllers: new Map<string, AbortController>() });
   const request = useCallback(async (key: string, controller: AbortController, force: boolean) => {

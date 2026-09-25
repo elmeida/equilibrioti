@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { login, type AuthUser } from '../services/api';
+import { openCookiePreferences } from './CookieConsent';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   const [email, setEmail] = useState('');
@@ -62,6 +63,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: AuthUser) => void }) 
           </button>
         </form>
       </section>
+      <button type="button" className="privacy-link" onClick={openCookiePreferences}>Privacidade e armazenamento</button>
     </main>
   );
 }

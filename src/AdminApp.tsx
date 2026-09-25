@@ -2,11 +2,15 @@ import { useEffect, useRef, useState, FormEvent } from 'react';
 import { Building2, Users, ExternalLink, Plus, LayoutGrid, Menu, Moon, Sun, Activity, Edit2, KeyRound, Check, X, ShieldAlert, Upload, ScrollText } from 'lucide-react';
 import { lazyModule } from './components/DeferredModule';
 import { isSafeLogoReference, safeLogoReference } from '../server/security/logo-reference.js';
-import { AuthUser, adminGetEmpresas, adminGetUsuarios, adminSaveEmpresa, adminSaveUsuario, adminTestConnection, adminUploadLogo, adminResetPassword } from './services/api';
+import { AuthUser, adminGetEmpresas, adminGetUsuarios, adminSaveEmpresa, adminSaveUsuario, adminTestConnection, adminTestSavedConnection, adminUploadLogo, adminResetPassword } from './services/api';
 import { Sidebar } from './components/Sidebar';
+import { openCookiePreferences } from './components/CookieConsent';
 import { fmtInt } from './utils/format';
 
 const AdminAudit = lazyModule(async () => ({ default: (await import('./components/AdminAudit')).AdminAudit }), 'Auditoria');
+function sortByName(items: any[]) {
+  return [...items].sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' }));
+}
 
 export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, onImpersonate: (empresa: any) => void, onLogout: () => void }) {
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
@@ -67,6 +71,7 @@ export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, on
           {activeTab === 'auditoria' && <AdminAudit />}
         </main>
       </div>
+      <footer><button type="button" onClick={openCookiePreferences}>Privacidade e armazenamento</button></footer>
     </div>
   );
 }
@@ -129,6 +134,22 @@ function AdminDashboard() {
   );
 }
 
+function CompanyConnection({ empresa }: { empresa: any }) {
+  const [status, setStatus] = useState('Nao verificada');
+  const [checking, setChecking] = useState(false);
+  const check = async () => {
+    setChecking(true);
+    setStatus('Verificando...');
+    try {
+      const result = await adminTestSavedConnection(empresa.id);
+      setStatus(result.message);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Falha ao verificar.');
+    } finally { setChecking(false); }
+  };
+  return <div className="connection-check"><span role="status">{status}</span><button type="button" className="icon-button" title={`Verificar conexao de ${empresa.nome}`} aria-label={`Verificar conexao de ${empresa.nome}`} disabled={checking || empresa.ativo === false} onClick={check}><Activity size={16} /></button></div>;
+}
+
 function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void }) {
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +159,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
   const load = () => {
     setLoading(true);
     setError('');
-    adminGetEmpresas().then(setEmpresas).catch(err => { if (err.name !== 'AbortError') setError('Não foi possível carregar as empresas.'); }).finally(() => setLoading(false));
+    adminGetEmpresas().then(items => setEmpresas(sortByName(items))).catch(err => { if (err.name !== 'AbortError') setError('Não foi possível carregar as empresas.'); }).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -160,22 +181,18 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
           <table className="admin-table">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Nome</th>
                 <th>Logo</th>
-                <th>Host (SQL Server)</th>
-                <th>Banco</th>
+                <th>Conexão com o banco</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {empresas.map(emp => (
                 <tr key={emp.id}>
-                  <td>{emp.id}</td>
                   <td><strong>{emp.nome}</strong></td>
-                  <td>{safeLogoReference(emp.logo_url) ? <img src={safeLogoReference(emp.logo_url)} alt={emp.nome} style={{ height: 30, objectFit: 'contain' }} /> : emp.logo_blocked ? <span>Logo bloqueada</span> : null}</td>
-                  <td>{emp.db_host}:{emp.db_port}</td>
-                  <td>{emp.db_database}</td>
+                  <td>{safeLogoReference(emp.logo_url) ? <img src={safeLogoReference(emp.logo_url)} alt={emp.nome} style={{ height: 34, maxWidth: 160, objectFit: 'contain' }} /> : <span>{emp.logo_blocked ? 'Logo bloqueada' : 'Sem logo'}</span>}</td>
+                  <td><CompanyConnection empresa={emp} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button className="icon-button" title="Editar" onClick={() => setEditingEmpresa(emp)}><Edit2 size={16} /></button>
@@ -186,7 +203,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
                   </td>
                 </tr>
               ))}
-              {empresas.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20 }}>Nenhuma empresa cadastrada.</td></tr>}
+              {empresas.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20 }}>Nenhuma empresa cadastrada.</td></tr>}
             </tbody>
           </table>
         )}

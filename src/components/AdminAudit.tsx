@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from 'lucide-rea
 import { adminGetAudit, type AuditEvent, type AuditFilters } from '../services/api';
 
 const actions: Record<string, string> = {
-  'company.create': 'Empresa criada', 'company.update': 'Empresa alterada', 'company.logo_upload': 'Logo enviada',
+  'company.create': 'Empresa criada', 'company.update': 'Empresa alterada', 'company.logo_upload': 'Logo enviada', 'company.connection_test': 'Teste de conexão solicitado',
   'user.create': 'Usuário criado', 'user.update': 'Usuário alterado', 'user.password_reset': 'Senha redefinida',
   'user.password_change': 'Senha alterada', 'session.logout': 'Saída da sessão', 'admin.tenant_access': 'Acesso administrativo',
   'financial.export': 'Solicitação de exportação', 'credentials.reencrypt': 'Credenciais recifradas',

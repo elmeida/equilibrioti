@@ -4,6 +4,10 @@ Dashboard web White Label da Equilibrio TI para acompanhamento financeiro integr
 
 ## Status Atenza
 
+Atualizacao posterior em 25/09/2026: os dez commits da `main` foram conciliados na branch de
+colaboracao. Testes unitarios e revisao visual com dados sinteticos aprovados; sem merge na `main`
+ou deploy. [Decisoes de integracao e limites](docs/registro-etapa-2026-09-25-integracao-main.md).
+
 Atualizacao de 25/09/2026: o trabalho local validado esta sendo compartilhado na branch `atenza/consolidacao-validada-20260925`, sem merge ou deploy. A `main` remota possui dez commits ausentes da base local; a conciliacao deve preservar as duas linhas de trabalho. Consulte o [guia de colaboracao](CONTRIBUTING.md) e o [registro desta etapa](docs/registro-etapa-2026-09-25-compartilhamento-git.md). A disponibilidade no Git nao significa publicacao em homologacao.
 
 Atualizacao de 21/09/2026: versao validada publicada em [homologacao](https://equilibrio-bi-homologacao.atenza.digital), com backup, banco preparado e HTTPS. [Registro de publicacao, verificacoes e limites](docs/registro-publicacao-hml-2026-09-21.md). Publicacao manual rastreada por hash; CI/CD remoto ainda nao ativado por falta de permissao no repositorio. Trechos historicos abaixo sobre ausencia de alteracao em HML referem-se as etapas anteriores.

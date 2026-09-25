@@ -23,7 +23,7 @@ IDs mantidos para compatibilidade. Rotulos foram corrigidos onde prometiam ident
 | totalReceber | Soma de rateio onde PAGREC = A Receber | Volume de rateio receber; nao somente carteira residual |
 | saldoLiquido | totalReceber - totalPagar | Diferenca entre volumes, nao saldo bancario |
 | totalAberto | Rateio das linhas Em Aberto | Exclui baixas parciais; nao usar como carteira residual completa |
-| totalBaixado | Rateio das linhas Baixado | Rateio liquidado, nao soma de eventos de caixa |
+| totalBaixado | Rateio das linhas Baixado ou Baixado Parcialmente | Rateio com baixa, incluindo o rateio integral da linha parcial; nao soma de eventos de caixa. Nao somar novamente totalBaixadoParcialmente |
 | totalBaixadoParcialmente | Rateio das linhas Baixado Parcialmente | Nao e residual nem valor efetivamente baixado |
 | quantidadeTitulos | COUNT_BIG(*) | Contagem de registros, nao de titulos unicos |
 | ticketMedio | Soma de rateio / quantidade de linhas | Rateio medio por registro; com base vazia conserva zero legado |

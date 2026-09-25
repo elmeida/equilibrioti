@@ -5,6 +5,9 @@ import { ORDER_FIELDS, titulosOrder } from '../server/sql/titulosBase.js';
 import { readPagination } from '../server/utils/pagination.js';
 
 describe('contrato de filtros multiplos', () => {
+  it('preserva a exclusao de documentos de previsao da main, inclusive sem filtros', () => {
+    expect(buildFilters({}, { input: vi.fn() })).toContain("UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'");
+  });
   it.each(['clientes', 'centrosCusto', 'naturezas', 'tiposDocumento', 'contas', 'origens'])('preserva valores inteiros em %s', key => {
     const values = ['Silva, Souza & Cia', 'A+B / 50%', ' nome com espacos ', '[matriz]'];
     const query = new URLSearchParams();

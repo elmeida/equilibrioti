@@ -18,6 +18,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { openCookiePreferences } from './components/CookieConsent';
 import { safeLogoReference } from '../server/security/logo-reference.js';
 import { dateFilterError } from '../server/utils/dateFilters.js';
 import { FilterPanel } from './components/FilterPanel';
@@ -57,6 +58,7 @@ const vencidosKpis: KpiKey[] = ['valorVencidoAberto', 'titulosVencidosAberto', '
 const inconsistenciaKpis: KpiKey[] = ['titulosValorZerado'];
 
 export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }: { user: AuthUser, activeEmpresa: any, onStopImpersonate?: () => void, onLogout: () => void }) {
+  const isAdmin = user.perfil === 'admin';
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [passwordModal, setPasswordModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
@@ -75,7 +77,10 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const exportRequest = useRef<AbortController | null>(null);
-  const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user));
+  const data = useDashboardData(filters, activeTab, refreshKey, Boolean(user), isAdmin);
+  const visibleTabs = tabs.filter(tab => isAdmin || tab.key !== 'inconsistencias');
+
+  useEffect(() => { if (!isAdmin && activeTab === 'inconsistencias') setActiveTab('geral'); }, [isAdmin, activeTab]);
 
   useEffect(() => {
     setExportError('');
@@ -102,10 +107,11 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
     }).length;
   }, [filters]);
 
-  const applyFilters = () => { if (!dateFilterError(draftFilters)) setFilters(draftFilters); };
+  const applyFilters = () => { if (!dateFilterError(draftFilters)) { setFilters(draftFilters); setRefreshKey(key => key + 1); } };
   const resetFilters = () => {
     setDraftFilters(defaultFilters);
     setFilters(defaultFilters);
+    setRefreshKey(key => key + 1);
   };
   const chartFilter = (field: keyof Filters, value: string) => {
     const apply = (old: Filters) => {
@@ -231,7 +237,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           </section>
 
           <nav className="dashboard-tabs" aria-label="Seções do dashboard">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button key={tab.key} className={activeTab === tab.key ? 'active' : ''} onClick={() => setActiveTab(tab.key)}>
                 {tab.icon}
                 {tab.label}
@@ -247,7 +253,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           {activeTab === 'geral' && (
             <TabPanel eyebrow="Visão Geral" title="Resumo executivo" subtitle="Os indicadores mais importantes aparecem primeiro; análises detalhadas ficam nas abas ao lado.">
               <KpiCards filters={filters} comparison={comparison} state={data.blocks.kpis} retry={() => data.retry('kpis')} data={data.kpis.data} loading={data.kpis.loading} keys={overviewKpis} emphasis />
-              <ExecutiveInsights insights={insights} quality={quality} state={data.blocks.inconsistenciasResumo} retry={() => data.retry('inconsistenciasResumo')} onDetails={() => setActiveTab('inconsistencias')} />
+              <ExecutiveInsights insights={insights} quality={quality} state={data.blocks.inconsistenciasResumo} retry={() => data.retry('inconsistenciasResumo')} onDetails={() => setActiveTab('inconsistencias')} showQuality={isAdmin} />
               <Charts blocks={data.blocks} retry={data.retry} data={data.charts.data} rankings={data.rankings.data} loading={data.charts.loading} filters={filters} onFilter={chartFilter} onClearFilter={clearContextFilter} visible={['evolucaoVencimento', 'pagarReceber', 'status', 'coligadas', 'topClientes', 'rankCentros', 'rankNaturezas', 'faixasVencimento']} />
             </TabPanel>
           )}
@@ -294,7 +300,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
             </TabPanel>
           )}
 
-          {activeTab === 'inconsistencias' && (
+          {isAdmin && activeTab === 'inconsistencias' && (
             <TabPanel eyebrow="Inconsistências" title="Alertas cadastrais e financeiros" subtitle="Pontos de atenção para saneamento de dados e validação operacional.">
               <RemoteBlock state={data.blocks.inconsistenciasResumo} title="Resumo de inconsistências" retry={() => data.retry('inconsistenciasResumo')}><div className="analysis-grid">
                 <MiniMetric title="Total de inconsistências" value={fmtInt(quality.total)} icon={<AlertTriangle />} />
@@ -319,7 +325,7 @@ export function BIDashboard({ user, activeEmpresa, onStopImpersonate, onLogout }
           )}
         </main>
 
-        <footer>Desenvolvido por Equilíbrio TI</footer>
+        <footer><span>Desenvolvido por Equilíbrio TI</span><button type="button" onClick={openCookiePreferences}>Privacidade e armazenamento</button></footer>
       </div>
       {passwordModal && <ChangePasswordModal onClose={() => setPasswordModal(false)} />}
       {installHelp && <InstallHelpModal onClose={() => setInstallHelp(false)} />}
@@ -342,7 +348,7 @@ function TabPanel({ eyebrow, title, subtitle, children }: { eyebrow: string; tit
   );
 }
 
-function ExecutiveInsights({ insights, quality, state, retry, onDetails }: { insights: { title: string; value: string; tone: string; state?: BlockState; retry?: () => void }[]; quality: ReturnType<typeof qualitySummary>; state?: BlockState; retry?: () => void; onDetails: () => void }) {
+function ExecutiveInsights({ insights, quality, state, retry, onDetails, showQuality }: { insights: { title: string; value: string; tone: string; state?: BlockState; retry?: () => void }[]; quality: ReturnType<typeof qualitySummary>; state?: BlockState; retry?: () => void; onDetails: () => void; showQuality: boolean }) {
   return (
     <section className="insights-card insights-layout">
       <div>
@@ -357,7 +363,7 @@ function ExecutiveInsights({ insights, quality, state, retry, onDetails }: { ins
           </article>
         ))}
       </div>
-      <article className="quality-card">
+      {showQuality && <article className="quality-card">
         <div>
           <span className="eyebrow"><AlertTriangle size={15} /> Qualidade dos dados</span>
           <h3>Validações encontradas na base financeira filtrada</h3>
@@ -370,7 +376,7 @@ function ExecutiveInsights({ insights, quality, state, retry, onDetails }: { ins
           <strong>Total: {fmtInt(quality.total)}</strong>
         </div></RemoteBlock>
         <button className="ghost-button" onClick={onDetails}>Ver detalhes</button>
-      </article>
+      </article>}
     </section>
   );
 }

@@ -54,7 +54,7 @@ function bindDateOnly(request, name, value) {
 
 export function buildFilters(query, request, prefix = 'f') {
   assertDateFilters(query);
-  const clauses = ['1 = 1'];
+  const clauses = ["UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'"];
   let index = 0;
 
   for (const [key, column] of Object.entries(scalarFilters)) {

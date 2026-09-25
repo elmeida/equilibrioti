@@ -5,18 +5,30 @@ import { baseSubquery, titulosOrder } from '../sql/titulosBase.js';
 import { readPagination } from '../utils/pagination.js';
 import { buildFilters, jsonRows } from '../utils/queryBuilder.js';
 import { getCache, setCache } from '../utils/cache.js';
-import { requireEmpresa } from '../auth/middleware.js';
+import { requireAdmin, requireEmpresa } from '../auth/middleware.js';
+import Decimal from 'decimal.js-light';
 import { getAuthPool } from '../db/authPool.js';
 import { recordAudit } from '../security/audit.js';
 import { assertDateFilters, calendarDaySpan } from '../utils/dateFilters.js';
 
 const router = Router();
 router.use(requireEmpresa);
+router.use('/inconsistencias', requireAdmin);
 router.use((req, _res, next) => {
   try { assertDateFilters(req.query); next(); } catch (error) { next(error); }
 });
 const SHORT_TTL = 4 * 60 * 1000;
 const FILTER_TTL = 8 * 60 * 1000;
+const SourceDecimal = Decimal.clone({ precision: 48 });
+const requiredViews = ['PBI_TITULOSFINANCEIRO', 'PBI_TITULOSFINANCEIRO_COL2'];
+const requiredColumns = [
+  'REF', 'CODCFO', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA',
+  'ORIGEM', 'HISTORICO', 'DTCRICAO', 'DTVENC', 'DTEMISSAO', 'DTBAIXA', 'ANO_VENC',
+  'MES_VENC', 'ANO_EMIS', 'MES_EMIS', 'ANO_BAIXA', 'MES_BAIXA', 'CODTDO', 'TIPODOC',
+  'CODCCUSTO', 'CCUSTO', 'CODNATFINANCEIRA', 'NATFINANCEIRA', 'VLRRATEIO', 'VLRBAIXA',
+  'VLRORIGINAL', 'VLRDESCONTO', 'VLRJUROS', 'VLRMULTA', 'VLRISS', 'VLRINSS',
+  'VLRDEVOLUCAO', 'VLRNOTACRED', 'VLRNCADIANT', 'VLRVINCULADO', 'NUMCHEQUE', 'CODCXA', 'CONTA',
+];
 
 async function runFiltered(req, sqlText, options = {}) {
   const ttl = options.ttl ?? SHORT_TTL;
@@ -46,6 +58,97 @@ function vencimentoBucket(req) {
   return monthExpr('DTVENC');
 }
 
+async function validateFinancialStructure(req) {
+  const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
+  const result = await pool.request().query(`
+    SELECT UPPER(TABLE_NAME) AS tableName
+    FROM INFORMATION_SCHEMA.VIEWS
+    WHERE TABLE_SCHEMA = 'dbo' AND UPPER(TABLE_NAME) IN (${requiredViews.map((view) => `'${view}'`).join(',')});
+
+    SELECT UPPER(TABLE_NAME) AS tableName, UPPER(COLUMN_NAME) AS columnName
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'dbo' AND UPPER(TABLE_NAME) IN (${requiredViews.map((view) => `'${view}'`).join(',')});
+  `);
+  const existingViews = new Set((result.recordsets[0] || []).map((row) => row.tableName));
+  const existingColumns = new Map();
+  for (const row of result.recordsets[1] || []) {
+    if (!existingColumns.has(row.tableName)) existingColumns.set(row.tableName, new Set());
+    existingColumns.get(row.tableName).add(row.columnName);
+  }
+
+  const alerts = [];
+  for (const view of requiredViews) {
+    if (!existingViews.has(view)) {
+      alerts.push(structureAlert('Crítico', 'View financeira indisponível', `A view dbo.${view} não está visível para a conexão desta empresa.`, view, 'Conferir permissões e existência da view antes de solicitar ajustes.'));
+      continue;
+    }
+    const columns = existingColumns.get(view) || new Set();
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) {
+        alerts.push(structureAlert('Crítico', 'Campo obrigatório ausente', `O campo ${column} não existe na view ${view}.`, `${view}.${column}`, 'Ajustar a view no banco do cliente para expor o campo obrigatório.'));
+      }
+    }
+  }
+  return alerts;
+}
+
+function structureAlert(severidade, tipo, explicacao, campo, sugestao) {
+  return {
+    severidade,
+    tipo,
+    explicacao,
+    EMPRESA: 'Estrutura do banco',
+    REF: null,
+    CLIFOR: null,
+    NUMERODOC: null,
+    PAGREC: null,
+    STATUS_FIN: null,
+    STATUS_BAIXA: null,
+    DTVENC: null,
+    DTBAIXA: null,
+    VLRRATEIO: null,
+    VLRBAIXA: null,
+    campo,
+    valorAtual: 'Não encontrado',
+    sugestao,
+  };
+}
+
+async function totalRateioOriginalAlert(req) {
+  const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
+  const request = pool.request();
+  const where = buildFilters(req.query, request, 'tot');
+  const result = await request.query(`
+    SELECT
+      CONVERT(varchar(80), COALESCE(SUM(VLRRATEIO), 0)) AS totalRateio,
+      CONVERT(varchar(80), COALESCE(SUM(VLRORIGINAL), 0)) AS totalOriginal
+    FROM ${baseSubquery()}
+    WHERE ${where}
+  `);
+  const row = jsonRows(result.recordset)[0] || {};
+  const diff = new SourceDecimal(row.totalRateio ?? 0).minus(row.totalOriginal ?? 0).abs();
+  if (diff.lessThan('0.01')) return [];
+  return [{
+    severidade: 'Informativo',
+    tipo: 'Rateio e original: conferir granularidade',
+    explicacao: 'As somas por linha diferem. O valor original pode se repetir entre rateios; a diferença não comprova erro financeiro.',
+    EMPRESA: 'Base filtrada',
+    REF: null,
+    CLIFOR: null,
+    NUMERODOC: null,
+    PAGREC: null,
+    STATUS_FIN: null,
+    STATUS_BAIXA: null,
+    DTVENC: null,
+    DTBAIXA: null,
+    VLRRATEIO: row.totalRateio,
+    VLRBAIXA: null,
+    campo: 'VLRRATEIO/VLRORIGINAL',
+    valorAtual: `Rateio: ${row.totalRateio}; Original: ${row.totalOriginal}`,
+    sugestao: 'Confirmar a chave de título/rateio e a aditividade antes de conciliar com o RM; não ajustar valores só para igualar somas.',
+  }];
+}
+
 router.get('/kpis', async (req, res, next) => {
   try {
     const rows = await runFiltered(req, `
@@ -56,7 +159,7 @@ router.get('/kpis', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN PAGREC = 'A Receber' THEN VLRRATEIO ELSE 0 END), 0)
           - COALESCE(SUM(CASE WHEN PAGREC = 'A Pagar' THEN VLRRATEIO ELSE 0 END), 0) AS saldoLiquido,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Em Aberto' THEN VLRRATEIO ELSE 0 END), 0) AS totalAberto,
-        COALESCE(SUM(CASE WHEN STATUS_FIN = 'Baixado' THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixado,
+        COALESCE(SUM(CASE WHEN STATUS_FIN IN ('Baixado', 'Baixado Parcialmente') THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixado,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Baixado Parcialmente' THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixadoParcialmente,
         COUNT_BIG(*) AS quantidadeTitulos,
         COALESCE(SUM(VLRRATEIO) / NULLIF(COUNT_BIG(*), 0), 0) AS ticketMedio,
@@ -388,7 +491,7 @@ function inconsistencySql(selectPrefix = '') {
       ('Informativo', 'Cliente/fornecedor vazio', 'Campo cadastral ausente; afeta agrupamentos por cliente/fornecedor.', 'CLIFOR', CLIFOR, 'Informar cliente/fornecedor.', CASE WHEN NULLIF(CLIFOR, '') IS NULL THEN 1 ELSE 0 END),
       ('Informativo', 'Centro de custo vazio', 'Campo cadastral ausente; afeta análise por centro de custo.', 'CCUSTO', CCUSTO, 'Informar centro de custo.', CASE WHEN NULLIF(CCUSTO, '') IS NULL THEN 1 ELSE 0 END),
       ('Informativo', 'Natureza financeira vazia', 'Campo cadastral ausente; afeta análise por natureza financeira.', 'NATFINANCEIRA', NATFINANCEIRA, 'Informar natureza financeira.', CASE WHEN NULLIF(NATFINANCEIRA, '') IS NULL THEN 1 ELSE 0 END),
-      ('Informativo', 'Conta vazia', 'Campo cadastral ausente; afeta análise por conta financeira.', 'CONTA', CONTA, 'Informar conta financeira.', CASE WHEN NULLIF(CONTA, '') IS NULL THEN 1 ELSE 0 END),
+      ('Informativo', 'Conta vazia em titulo em aberto', 'Titulo em aberto sem conta financeira; merece conferencia para analise por conta e acompanhamento da carteira.', 'CONTA', CONTA, 'Informar conta financeira ou validar se o titulo em aberto ainda nao possui conta.', CASE WHEN STATUS_FIN = 'Em Aberto' AND NULLIF(LTRIM(RTRIM(CONTA)), '') IS NULL THEN 1 ELSE 0 END),
       ('Informativo', 'Número do documento vazio', 'Campo cadastral ausente; dificulta rastreabilidade documental.', 'NUMERODOC', NUMERODOC, 'Informar número do documento.', CASE WHEN NULLIF(NUMERODOC, '') IS NULL THEN 1 ELSE 0 END),
       ('Informativo', 'Origem vazia', 'Campo cadastral ausente; afeta análise por origem.', 'ORIGEM', ORIGEM, 'Informar origem.', CASE WHEN NULLIF(ORIGEM, '') IS NULL THEN 1 ELSE 0 END),
       ('Informativo', 'Tipo de documento vazio', 'Campo cadastral ausente; afeta análise por tipo de documento.', 'TIPODOC', TIPODOC, 'Informar tipo de documento.', CASE WHEN NULLIF(TIPODOC, '') IS NULL THEN 1 ELSE 0 END)
@@ -399,17 +502,31 @@ function inconsistencySql(selectPrefix = '') {
 
 router.get('/inconsistencias/resumo', async (req, res, next) => {
   try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) {
+      const grouped = structureAlerts.reduce((acc, alert) => {
+        const key = `${alert.severidade}|${alert.tipo}`;
+        acc[key] ||= { severidade: alert.severidade, tipo: alert.tipo, quantidade: 0, registrosAfetados: 0 };
+        acc[key].quantidade += 1;
+        acc[key].registrosAfetados += 1;
+        return acc;
+      }, {});
+      return res.json(Object.values(grouped));
+    }
     const rows = await runFiltered(req, `
       SELECT severidade, tipo, COUNT_BIG(*) AS quantidade, COUNT_BIG(DISTINCT CONCAT(EMPRESA, '|', REF, '|', NUMERODOC)) AS registrosAfetados
       ${inconsistencySql('')}
       GROUP BY severidade, tipo
     `);
-    res.json(rows);
-  } catch (err) { next(err); }
+    const totalAlerts = await totalRateioOriginalAlert(req);
+    return res.json([...totalAlerts.map(alert => ({ severidade: alert.severidade, tipo: alert.tipo, quantidade: 1, registrosAfetados: null })), ...rows]);
+  } catch (err) { return next(err); }
 });
 
 router.get('/inconsistencias/v2', async (req, res, next) => {
   try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) return res.json(structureAlerts);
     const rows = await runFiltered(req, `
       SELECT TOP (300)
         severidade, tipo, explicacao, EMPRESA, REF, CLIFOR, NUMERODOC, PAGREC,
@@ -418,12 +535,14 @@ router.get('/inconsistencias/v2', async (req, res, next) => {
       ${inconsistencySql('')}
       ORDER BY CASE severidade WHEN 'Crítico' THEN 1 WHEN 'Atenção' THEN 2 ELSE 3 END, tipo
     `);
-    res.json(rows);
-  } catch (err) { next(err); }
+    return res.json([...await totalRateioOriginalAlert(req), ...rows]);
+  } catch (err) { return next(err); }
 });
 
 router.get('/inconsistencias', async (req, res, next) => {
   try {
+    const structureAlerts = await validateFinancialStructure(req);
+    if (structureAlerts.length) return res.json(structureAlerts);
     const rows = await runFiltered(req, `
       SELECT TOP (200)
         severidade, tipo, explicacao, EMPRESA, REF, CLIFOR, NUMERODOC, PAGREC,
@@ -432,9 +551,10 @@ router.get('/inconsistencias', async (req, res, next) => {
       ${inconsistencySql('')}
       ORDER BY CASE severidade WHEN 'Crítico' THEN 1 WHEN 'Atenção' THEN 2 ELSE 3 END, tipo
     `);
-    res.json(rows);
-  } catch (err) { next(err); }
+    return res.json([...await totalRateioOriginalAlert(req), ...rows]);
+  } catch (err) { return next(err); }
 });
+
 
 
 router.get('/filtros/:tipo', async (req, res, next) => {
@@ -450,7 +570,7 @@ router.get('/filtros/:tipo', async (req, res, next) => {
     status: 'STATUS_FIN',
     'status-baixa': 'STATUS_BAIXA',
   };
-  const field = fields[req.params.tipo];
+  const field = Object.hasOwn(fields, req.params.tipo) ? fields[req.params.tipo] : null;
   if (!field) return res.status(404).json({ error: 'Filtro não encontrado.' });
 
   try {
@@ -460,17 +580,20 @@ router.get('/filtros/:tipo', async (req, res, next) => {
     const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
     const request = pool.request();
     const term = String(req.query.q || '').trim();
-    let where = `NULLIF(${field}, '') IS NOT NULL`;
+    let where = `NULLIF(LTRIM(RTRIM(${field})), '') IS NOT NULL AND UPPER(LTRIM(RTRIM(ISNULL(TIPODOC, '')))) <> N'PREVISÃO'`;
+    let order = 'value';
     if (term) {
       request.input('term', sql.NVarChar, `%${term}%`);
-      where += ` AND ${field} LIKE @term`;
+      request.input('termStart', sql.NVarChar, `${term}%`);
+      where += ` AND ${field} COLLATE Latin1_General_CI_AI LIKE @term`;
+      order = `CASE WHEN ${field} COLLATE Latin1_General_CI_AI LIKE @termStart THEN 0 ELSE 1 END, value`;
     }
     const result = await request.query(`
-      SELECT TOP (50) ${field} AS value, COUNT_BIG(*) AS total
+      SELECT ${field} AS value, COUNT_BIG(*) AS total
       FROM ${baseSubquery()}
       WHERE ${where}
       GROUP BY ${field}
-      ORDER BY total DESC, value
+      ORDER BY ${order}
     `);
     const rows = jsonRows(result.recordset);
     setCache(cacheKey, rows, FILTER_TTL);

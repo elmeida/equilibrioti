@@ -2,6 +2,16 @@
 
 Todas as mudancas relevantes deste projeto devem ser registradas aqui, seguindo versionamento semantico quando houver release.
 
+## [Integracao para revisao] - 2026-09-25
+
+- Conciliacao dos dez commits da main com a branch validada, mantendo os dois historicos.
+- Selecao multipla, busca sem acentos, filtros sem corte em 50 opcoes e rolagem superior sincronizada com tela cheia.
+- Lista administrativa simplificada, logos protegidas e teste explicito/auditado de conexao por empresa.
+- Diagnosticos de estrutura e inconsistencias exclusivos do admin; rotas duplicadas eliminadas.
+- Regra remota de exclusao de PREVISAO e inclusao de baixas parciais no rateio com baixa preservadas, com limites documentados.
+- Aviso de armazenamento sem analytics ativo ou declaracao de conformidade LGPD integral.
+- [Registro, testes, decisoes e limites](docs/registro-etapa-2026-09-25-integracao-main.md). Sem deploy ou alteracao de banco.
+
 ## [Compartilhamento para revisao] - 2026-09-25
 
 - Consolidacao do trabalho local validado em branch separada, sem merge ou deploy.

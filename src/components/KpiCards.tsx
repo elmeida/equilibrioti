@@ -28,7 +28,7 @@ export const kpiRegistry = {
   totalReceber: ['Total a receber', 'money', TrendingUp, 'Soma de VLRRATEIO com PAGREC = A Receber.'],
   saldoLiquido: ['Diferença receber − pagar', 'money', Scale, 'Diferença entre os rateios a receber e a pagar. Não representa saldo bancário nem lucro.'],
   totalAberto: ['Rateio em aberto', 'money', Clock, 'Rateio das linhas com status Em Aberto; não inclui o residual de baixas parciais.'],
-  totalBaixado: ['Rateio liquidado', 'money', CalendarCheck, 'Rateio das linhas com status Baixado. Não equivale ao caixa recebido/pago.'],
+  totalBaixado: ['Rateio com baixa', 'money', CalendarCheck, 'Rateio das linhas com status Baixado ou Baixado Parcialmente, incluindo o rateio integral da linha. Não equivale ao caixa recebido/pago.'],
   totalBaixadoParcialmente: ['Baixado parcialmente', 'money', Percent, 'Soma de VLRRATEIO com STATUS_FIN = Baixado Parcialmente.'],
   quantidadeTitulos: ['Registros na consulta', 'int', FileText, 'Contagem de linhas das views. Um título pode ocupar várias linhas de rateio; não é contagem de títulos únicos.'],
   ticketMedio: ['Rateio médio por registro', 'money', Receipt, 'Soma de VLRRATEIO dividida pela quantidade de linhas, não por títulos únicos.'],

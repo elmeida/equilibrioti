@@ -5,6 +5,13 @@ import { currentPeriod, dateFilterError } from '../../server/utils/dateFilters.j
 
 type Option = { value: string; total: number };
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 const multiMap = [
   ['clientes', 'Cliente/Fornecedor', 'clientes'],
   ['centrosCusto', 'Centro de custo', 'centros-custo'],
@@ -166,18 +173,30 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
   onChange: (value: string[]) => void;
 }) {
   const visibleOptions = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearch(search.trim());
     const ranked = options
-      .filter((option) => !q || option.value.toLowerCase().includes(q))
+      .filter((option) => !q || normalizeSearch(option.value).includes(q))
       .sort((a, b) => {
-        if (!q) return Number(b.total || 0) - Number(a.total || 0);
-        const ai = a.value.toLowerCase().indexOf(q);
-        const bi = b.value.toLowerCase().indexOf(q);
+        if (!q) return a.value.localeCompare(b.value, 'pt-BR');
+        const av = normalizeSearch(a.value);
+        const bv = normalizeSearch(b.value);
+        const ai = av.indexOf(q);
+        const bi = bv.indexOf(q);
+        const aStarts = av.startsWith(q) ? 0 : 1;
+        const bStarts = bv.startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
         return ai - bi || a.value.localeCompare(b.value);
       });
     return ranked;
   }, [options, search]);
   const toggle = (value: string) => onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
+  const visibleValues = visibleOptions.map((option) => option.value);
+  const allVisibleSelected = visibleValues.length > 0 && visibleValues.every((value) => selected.includes(value));
+  const selectVisible = () => {
+    const next = Array.from(new Set([...selected, ...visibleValues]));
+    onChange(next);
+  };
+  const clearSelection = () => onChange([]);
 
   return (
     <div className={`multi-select ${open ? 'open' : ''}`} data-filter={id}>
@@ -185,8 +204,15 @@ function MultiSelect({ id, label, selected, options, search, open, onOpen, onSea
       {open && (
         <div className="multi-menu">
           <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder={`Pesquisar ${label.toLowerCase()}`} autoFocus />
+          <div className="multi-bulk-actions">
+            <button type="button" onClick={selectVisible} disabled={visibleOptions.length === 0 || allVisibleSelected}>
+              Selecionar todos
+            </button>
+            <button type="button" onClick={clearSelection} disabled={selected.length === 0}>
+              Remover seleção
+            </button>
+          </div>
           <div className="option-list">
-            {selected.length > 0 && <button onClick={() => onChange([])}>Limpar seleção</button>}
             {visibleOptions.map((option) => (
               <label key={option.value}>
                 <input type="checkbox" checked={selected.includes(option.value)} onChange={() => toggle(option.value)} />

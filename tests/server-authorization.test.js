@@ -70,6 +70,96 @@ beforeEach(() => {
 });
 
 describe('autorizacao multiempresa nas rotas reais, com bancos simulados', () => {
+  it.each(['inconsistencias', 'inconsistencias/v2', 'inconsistencias/resumo'])('restringe %s no servidor, nao apenas na interface', async endpoint => {
+    await get(`/api/titulos/${endpoint}`, token(1)).expect(403);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+  });
+  it('perfil legado nao cadastrado no contrato nao ganha administracao por alias', async () => {
+    users.get(1).perfil = 'administrador';
+    await get('/api/admin/empresas', token(1)).expect(401);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+  });
+  it('listar empresas nao abre conexoes RM nem retorna credenciais', async () => {
+    const response = await get('/api/admin/empresas', token(3)).expect(200);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+    expect(JSON.stringify(response.body)).not.toContain('must-never');
+    expect(response.body[0]).not.toHaveProperty('db_password');
+  });
+  it('teste explicito usa empresa ativa, versao de conexao e auditoria', async () => {
+    const query = vi.fn().mockResolvedValue({ recordset: [{ test: 1 }] });
+    mocks.sqlPool.mockResolvedValue({ request: () => ({ query }) });
+    await request(app).post('/api/admin/empresas/2/conexao').set('Authorization', `Bearer ${token(1)}`).expect(403);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+    await request(app).post('/api/admin/empresas/2/conexao').set('Authorization', `Bearer ${token(3)}`).expect(200);
+    expect(mocks.sqlPool).toHaveBeenCalledWith(2, 0);
+    expect(query).toHaveBeenCalledWith('SELECT 1 AS test');
+    expect(mocks.query.mock.calls.some(([sql, params]) => sql.includes('.audit_events') && params.includes('company.connection_test'))).toBe(true);
+  });
+  it('teste de conexao recusa inativa, nao expoe erro do driver e respeita auditoria', async () => {
+    companies.get(2).ativo = false;
+    await request(app).post('/api/admin/empresas/2/conexao').set('Authorization', `Bearer ${token(3)}`).expect(404);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+    mocks.sqlPool.mockRejectedValue(new Error('private-host private-password'));
+    const response = await request(app).post('/api/admin/empresas/1/conexao').set('Authorization', `Bearer ${token(3)}`).expect(503);
+    expect(JSON.stringify(response.body)).not.toContain('private-');
+    mocks.sqlPool.mockClear();
+    const original = mocks.query.getMockImplementation();
+    mocks.query.mockImplementation((sql, params) => sql.includes('INSERT INTO') && sql.includes('.audit_events') ? Promise.reject(new Error('audit')) : original(sql, params));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await request(app).post('/api/admin/empresas/1/conexao').set('Authorization', `Bearer ${token(3)}`).expect(500);
+    expect(mocks.sqlPool).not.toHaveBeenCalled();
+  });
+  it('filtros retornam mais de 50 opcoes e buscam sem acentos com parametros', async () => {
+    const options = Array.from({ length: 70 }, (_, i) => ({ value: `Opcao ${i}`, total: 1 }));
+    const input = vi.fn();
+    const query = vi.fn().mockResolvedValue({ recordset: options });
+    mocks.sqlPool.mockResolvedValue({ request: () => ({ input, query }) });
+    const q = `arvore-${++sequence}`;
+    const result = await get(`/api/titulos/filtros/clientes?q=${q}`, token(1)).expect(200);
+    expect(result.body).toHaveLength(70);
+    expect(query.mock.calls[0][0]).not.toContain('TOP (50)');
+    expect(query.mock.calls[0][0]).toContain('COLLATE Latin1_General_CI_AI');
+    expect(query.mock.calls[0][0]).toContain("<> N'PREVISÃO'");
+    expect(query.mock.calls[0][0]).not.toContain(q);
+    expect(input.mock.calls.map(call => call[2])).toContain(`%${q}%`);
+    await get('/api/titulos/filtros/toString', token(1)).expect(404);
+  });
+  it('KPI com baixa conserva ambas as situacoes e a precisao existente', async () => {
+    const query = vi.fn().mockResolvedValue({ recordset: [{}] });
+    mocks.sqlPool.mockResolvedValue({ request: () => ({ input() {}, query }) });
+    await get(kpis(), token(1)).expect(200);
+    expect(query.mock.calls[0][0]).toContain("STATUS_FIN IN ('Baixado', 'Baixado Parcialmente') THEN VLRRATEIO");
+    expect(query.mock.calls[0][0]).toContain('decimal(19, 4)');
+  });
+  it('estrutura indisponivel interrompe leitura financeira e respeita schema/tenant', async () => {
+    const query = vi.fn().mockResolvedValue({ recordsets: [[], []] });
+    mocks.sqlPool.mockResolvedValue({ request: () => ({ query }) });
+    const result = await get('/api/titulos/inconsistencias/v2', token(3), '2').expect(200);
+    expect(result.body).toHaveLength(2);
+    expect(result.body[0].explicacao).toContain('não está visível');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0][0].match(/TABLE_SCHEMA = 'dbo'/g)).toHaveLength(2);
+    expect(mocks.sqlPool).toHaveBeenCalledWith(2, 0);
+  });
+  it('resumo nao acumula alertas no cache nem certifica diferenca entre granularidades', async () => {
+    const views = ['PBI_TITULOSFINANCEIRO', 'PBI_TITULOSFINANCEIRO_COL2'];
+    const columns = 'REF CODCFO CLIFOR NUMERODOC PAGREC STATUS_FIN STATUS_BAIXA ORIGEM HISTORICO DTCRICAO DTVENC DTEMISSAO DTBAIXA ANO_VENC MES_VENC ANO_EMIS MES_EMIS ANO_BAIXA MES_BAIXA CODTDO TIPODOC CODCCUSTO CCUSTO CODNATFINANCEIRA NATFINANCEIRA VLRRATEIO VLRBAIXA VLRORIGINAL VLRDESCONTO VLRJUROS VLRMULTA VLRISS VLRINSS VLRDEVOLUCAO VLRNOTACRED VLRNCADIANT VLRVINCULADO NUMCHEQUE CODCXA CONTA'.split(' ');
+    const grouped = [{ severidade: 'Informativo', tipo: 'Campo vazio', quantidade: 2 }];
+    const query = vi.fn(async sql => {
+      if (sql.includes('INFORMATION_SCHEMA')) return { recordsets: [views.map(tableName => ({ tableName })), views.flatMap(tableName => columns.map(columnName => ({ tableName, columnName })))] };
+      if (sql.includes('AS totalOriginal')) return { recordset: [{ totalRateio: '999999999999999999999999.01', totalOriginal: '999999999999999999999999.00' }] };
+      return { recordset: grouped };
+    });
+    mocks.sqlPool.mockResolvedValue({ request: () => ({ input() {}, query }) });
+    const url = `/api/titulos/inconsistencias/resumo?case=${++sequence}`;
+    const first = await get(url, token(3), '1').expect(200);
+    const second = await get(url, token(3), '1').expect(200);
+    expect(first.body).toEqual(second.body);
+    expect(second.body).toHaveLength(2);
+    expect(second.body[0]).toMatchObject({ severidade: 'Informativo', registrosAfetados: null, quantidade: 1 });
+    expect(query.mock.calls.filter(([sql]) => sql.includes('GROUP BY severidade'))).toHaveLength(1);
+    expect(query.mock.calls.find(([sql]) => sql.includes('GROUP BY severidade'))[0]).toContain("STATUS_FIN = 'Em Aberto' AND NULLIF(LTRIM(RTRIM(CONTA)), '') IS NULL");
+  });
   it.each(['kpis', 'tabela', 'export', 'graficos/evolucao-vencimento', 'filtros/clientes'])('recusa datas invalidas na rota %s antes de cache/SQL financeiro', async endpoint => {
     for (const query of ['startDate=2026-02-30', 'startDate=2026-02-02&endDate=2026-02-01', 'dateField=toString', 'startDate=2026-01-01&startDate=2026-01-02', 'endDate=9999-12-31', 'dateField=baixa&dateField=emissao']) {
       await get(`/api/titulos/${endpoint}?${query}`, token(1)).expect(400);

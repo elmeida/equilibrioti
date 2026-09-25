@@ -263,6 +263,10 @@ export async function adminTestConnection(data: any) {
   return apiPost<{ ok: boolean; message: string }>('/api/admin/empresas/test-connection', data);
 }
 
+export function adminTestSavedConnection(id: number) {
+  return apiPost<{ ok: boolean; message: string }>(`/api/admin/empresas/${id}/conexao`, {});
+}
+
 export async function adminUploadLogo(file: File) {
   const formData = new FormData();
   formData.append('logo', file);

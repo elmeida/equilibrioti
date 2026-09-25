@@ -661,3 +661,18 @@ Arquivos locais e evidencias excluidos do envio. [Registro e limites](registro-e
 Pendente de desenvolvimento: conciliar dez commits existentes na `main` remota, preservando filtros,
 indicadores, administracao e privacidade, e repetir validacoes antes do merge. Pendente de infraestrutura:
 confirmar CD e protecoes do ambiente antes da integracao. Sem deploy, alteracao de views ou banco.
+
+## 36. Conciliacao de branches em 25/09/2026
+
+Dez commits da main conciliados com a versao validada, preservando os dois historicos e a branch
+de colaboracao. 627 testes, TypeScript, build, limites e auditoria npm aprovados; revisao visual
+sintetica em 1440/390/320 px concluida sem erros de JavaScript nos cenarios testados.
+[Decisoes por commit, verificacoes e limites](registro-etapa-2026-09-25-integracao-main.md).
+
+OP01: conciliacao de codigo concluida para revisao; merge na main, configuracao/ativacao do CD,
+restore e aceite continuam pendentes. UX07/UX18 preservados com rolagem superior. UX17 continua
+parcial: opcoes completas/busca sem acentos preservadas, mas carga independente/erros dos filtros
+e desempenho em volume real ainda exigem trabalho. UX08-UX16 nao encerrados genericamente.
+
+Gestao: definir papeis/canal/retencao LGPD. RM/negocio: validar contrato e conciliacao financeira.
+Sem acesso a clientes, alteracao de views, banco ou publicacao em homologacao nesta etapa.

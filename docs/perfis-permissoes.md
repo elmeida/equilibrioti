@@ -22,12 +22,16 @@ Data inicial: 2026-07-09. Atualizacao: 2026-09-17.
 | Trocar propria senha | Nao | Sim | Sim |
 | Gerenciar empresas | Nao | Nao | Sim |
 | Testar conexao SQL Server | Nao | Nao | Sim |
+| Consultar diagnosticos de estrutura/inconsistencias | Nao | Nao | Sim, ao selecionar empresa |
 | Upload de logo da empresa | Nao | Nao | Sim |
 | Gerenciar usuarios | Nao | Nao | Sim |
 | Resetar senha de usuario | Nao | Nao | Sim |
 | Impersonar/acessar como empresa | Nao | Nao | Sim |
 
 ## Regras tecnicas encontradas
+
+Atualizacao de 25/09/2026: inconsistencias restritas ao admin tambem na API. Teste de conexao
+salva exige acao explicita, empresa ativa e auditoria; listar empresas nao abre conexoes RM.
 
 - Rotas `/api/admin/*` exigem autenticacao e perfil `admin`.
 - Rotas `/api/titulos/*` exigem autenticacao e empresa selecionada/vinculada.

@@ -4,8 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { finiteValue, largestValue, positiveBaseRatio, qualitySummary } from '../src/utils/analytics';
 import { fmtPercent } from '../src/utils/format';
 import { KpiCards, kpiRegistry } from '../src/components/KpiCards';
+import { kpiExplanations } from '../src/utils/kpiExplanations';
 
 describe('semantica e apresentacao de indicadores', () => {
+  it('baixa parcial pertence ao card com baixa sem ser tratada como caixa liquidado', () => {
+    expect(kpiRegistry.totalBaixado[0]).toBe('Rateio com baixa');
+    expect(kpiRegistry.totalBaixado[3]).toContain('Baixado Parcialmente');
+    expect(kpiExplanations.totalBaixado.formula).toContain('Baixado Parcialmente');
+    expect(kpiExplanations.totalBaixado.limit).toContain('não somar novamente');
+  });
   it.each([null, undefined, '', ' ', NaN, Infinity, -Infinity, true, {}, []])('nao transforma ausencia/invalido %j em zero', value => {
     expect(finiteValue(value)).toBeNull();
     expect(fmtPercent(value)).toBe('Indisponível');

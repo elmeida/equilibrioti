@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { getAuthPool } from '../db/authPool.js';
 import { getAuthSchemaName } from '../db/schema.js';
 
-export const AUDIT_ACTIONS = Object.freeze(['company.create', 'company.update', 'company.logo_upload', 'user.create', 'user.update', 'user.password_reset',
+export const AUDIT_ACTIONS = Object.freeze(['company.create', 'company.update', 'company.logo_upload', 'company.connection_test', 'user.create', 'user.update', 'user.password_reset',
   'user.password_change', 'session.logout', 'admin.tenant_access', 'financial.export', 'credentials.reencrypt']);
 const actions = new Set(AUDIT_ACTIONS);
 const schema = getAuthSchemaName();

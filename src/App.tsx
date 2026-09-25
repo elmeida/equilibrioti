@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { LoginScreen } from './components/LoginScreen';
+import { CookieConsent } from './components/CookieConsent';
 import { lazyModule } from './components/DeferredModule';
 import { clearAuthToken, logoutSession, getAuthToken, loadMe, getActiveEmpresa, setActiveEmpresa, getApiContextRevision, subscribeApiContext, type AuthUser } from './services/api';
 
@@ -8,7 +9,7 @@ const BIDashboard = lazyModule(async () => ({ default: (await import('./BIDashbo
 
 export function App() {
   const context = useSyncExternalStore(subscribeApiContext, getApiContextRevision);
-  return <SessionApp key={context} />;
+  return <><SessionApp key={context} /><CookieConsent /></>;
 }
 
 function SessionApp() {

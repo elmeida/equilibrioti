@@ -171,7 +171,7 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
         </div>
         {exportError && <div className="error-box" role="alert">{exportError}</div>}
         {error && <div className="error-box" role="alert">{error} <button className="icon-button" title="Tentar novamente" aria-label="Tentar novamente" onClick={() => setRetry(value => value + 1)}><RefreshCw size={16} /></button></div>}
-        <div className="table-wrap controlled-scroll">
+        <TableScroll className="controlled-scroll">
           <table>
             <thead>
               <tr>
@@ -186,7 +186,7 @@ function AnalyticalTable({ filters }: { filters: Filters }) {
               {!loading && !error && filteredRows.map((row, index) => <ExpandableRow key={`${row.EMPRESA}-${row.REF}-${row.NUMERODOC}-${index}`} row={row} visibleCols={visibleCols} />)}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         <div className="pagination">
           <button className="icon-button" aria-label="Página anterior" disabled={loading || Boolean(error) || table.page <= 1} onClick={() => setTable((old) => ({ ...old, page: old.page - 1 }))}><ChevronLeft size={18} /></button>
           <span>Página {table.page} de {pageCount}</span>
@@ -240,11 +240,43 @@ function Detail({ label, value, wide }: { label: string; value: any; wide?: bool
   return <div className={wide ? 'detail-item wide' : 'detail-item'}><span>{label}</span><strong>{safe(value)}</strong></div>;
 }
 
+function TableScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
+  const topRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(1200);
+
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const update = () => setWidth(body.scrollWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(body);
+    const table = body.querySelector('table');
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [children]);
+
+  const syncFromTop = () => {
+    if (bodyRef.current && topRef.current) bodyRef.current.scrollLeft = topRef.current.scrollLeft;
+  };
+  const syncFromBody = () => {
+    if (bodyRef.current && topRef.current) topRef.current.scrollLeft = bodyRef.current.scrollLeft;
+  };
+
+  return (
+    <div className="table-scroll-shell">
+      <div className="table-scroll-top" ref={topRef} onScroll={syncFromTop} tabIndex={0} role="region" aria-label="Rolagem horizontal da tabela"><div style={{ width }} /></div>
+      <div className={`table-wrap ${className}`} ref={bodyRef} onScroll={syncFromBody}>{children}</div>
+    </div>
+  );
+}
+
 function Ranking({ title, rows, name }: { title: string; rows: any[]; name: string }) {
   return (
     <ExpandablePanel title={title} className="table-card small ranking-table">
       <div className="table-toolbar"><div><strong>{title}</strong><span>Top 50 por VLRRATEIO</span></div></div>
-      <div className="table-wrap">
+      <TableScroll>
         <table>
           <thead><tr><th>{name}</th><th>Qtd.</th><th>Total</th><th>Baixa</th><th>Aberto</th><th>Vencido</th><th>Ticket</th><th>%</th></tr></thead>
           <tbody>
@@ -263,7 +295,7 @@ function Ranking({ title, rows, name }: { title: string; rows: any[]; name: stri
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
     </ExpandablePanel>
   );
 }
@@ -277,7 +309,7 @@ function SimpleTable({ title, rows, columns: tableColumns, icon }: { title: stri
         <div><strong>{icon}{title}</strong><span>{fmtInt(filteredRows.length)} registros exibidos</span></div>
         <label className="table-search"><Search size={16} /><input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Filtrar tabela" /></label>
       </div>
-      <div className="table-wrap">
+      <TableScroll>
         <table>
           <thead><tr>{tableColumns.map((col) => <th key={col}>{col}</th>)}</tr></thead>
           <tbody>
@@ -285,7 +317,7 @@ function SimpleTable({ title, rows, columns: tableColumns, icon }: { title: stri
             {filteredRows.slice(0, 120).map((row, i) => <tr key={i}>{tableColumns.map((col) => <td key={col}>{formatCell(col, row[col])}</td>)}</tr>)}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
     </ExpandablePanel>
   );
 }
@@ -311,12 +343,12 @@ function InconsistencyTable({ rows }: { rows: any[] }) {
         <label>Tipo de inconsistência<select value={type} onChange={(e) => setType(e.target.value)}><option value="">Todos</option>{types.map((item) => <option key={item}>{item}</option>)}</select></label>
         <label>Cliente/Fornecedor, empresa ou documento<input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Pesquisar nos alertas" /></label>
       </div>
-      <div className="table-wrap">
+      <TableScroll>
         <table>
           <thead><tr>{['severidade', 'tipo', 'explicacao', 'EMPRESA', 'REF', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA', 'DTVENC', 'DTBAIXA', 'VLRRATEIO', 'VLRBAIXA', 'campo', 'valorAtual', 'sugestao'].map((col) => <th key={col}>{col}</th>)}</tr></thead>
           <tbody>{filtered.length === 0 && <tr><td colSpan={17}>Sem registros neste recorte.</td></tr>}{filtered.map((row, i) => <tr key={i}>{['severidade', 'tipo', 'explicacao', 'EMPRESA', 'REF', 'CLIFOR', 'NUMERODOC', 'PAGREC', 'STATUS_FIN', 'STATUS_BAIXA', 'DTVENC', 'DTBAIXA', 'VLRRATEIO', 'VLRBAIXA', 'campo', 'valorAtual', 'sugestao'].map((col) => <td key={col}>{formatCell(col, row[col])}</td>)}</tr>)}</tbody>
         </table>
-      </div>
+      </TableScroll>
     </ExpandablePanel>
   );
 }

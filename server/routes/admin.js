@@ -5,8 +5,8 @@ import { getAuthPool } from '../db/authPool.js';
 import sql from 'mssql';
 import { z } from 'zod';
 import { encryptCredential } from '../security/credentials.js';
-import { auditedMutation, httpError } from '../security/audit.js';
-import { invalidateEmpresaPool } from '../db/pool.js';
+import { auditedMutation, httpError, recordAudit } from '../security/audit.js';
+import { getPoolForEmpresa, invalidateEmpresaPool } from '../db/pool.js';
 import { auditQuery, auditPage } from '../security/audit-query.js';
 import { logoUploadLimiter, uploadLogo } from '../security/logos.js';
 import { isSafeLogoReference } from '../security/logo-reference.js';
@@ -130,6 +130,22 @@ router.put('/empresas/:id', async (req, res, next) => {
 });
 
 router.post('/empresas/upload-logo', logoUploadLimiter, uploadLogo);
+
+router.post('/empresas/:id/conexao', sensitiveActionLimiter, async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await getAuthPool().query(`SELECT id, connection_version FROM ${schema}.empresas WHERE id = $1 AND ativo = true`, [id]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Empresa indisponivel para teste.' });
+    await recordAudit(getAuthPool(), req, 'company.connection_test', { tenantId: id, outcome: 'authorized' });
+    try {
+      const pool = await getPoolForEmpresa(id, result.rows[0].connection_version);
+      await pool.request().query('SELECT 1 AS test');
+      return res.json({ ok: true, message: 'Conexao confirmada neste teste.' });
+    } catch {
+      return res.status(503).json({ error: 'Nao foi possivel confirmar a conexao agora.' });
+    }
+  } catch (error) { next(error); }
+});
 
 router.post('/empresas/test-connection', async (req, res) => {
   const { db_host, db_port, db_database, db_user, db_password } = req.body;
