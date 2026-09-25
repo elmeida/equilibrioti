@@ -1,0 +1,147 @@
+name: CD - VPS Homologacao
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag ou SHA para deploy
+        required: false
+        default: main
+      run_migrations:
+        description: Executar migrations PostgreSQL antes de reiniciar
+        required: true
+        type: boolean
+        default: false
+      keep_releases:
+        description: Quantidade de releases para manter na VPS
+        required: true
+        default: "5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equilibrio-bi-homologacao
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy em VPS de homologacao
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: homologation
+
+    steps:
+      - name: Definir parametros do deploy
+        id: deploy_context
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_MIGRATIONS: ${{ inputs.run_migrations }}
+          INPUT_KEEP: ${{ inputs.keep_releases }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            [[ "$INPUT_REF" =~ ^[a-zA-Z0-9_./-]+$ ]] || exit 1
+            [[ "$INPUT_MIGRATIONS" == "true" || "$INPUT_MIGRATIONS" == "false" ]] || exit 1
+            [[ "$INPUT_KEEP" =~ ^[1-9][0-9]*$ ]] || exit 1
+            echo "checkout_ref=$INPUT_REF" >> "$GITHUB_OUTPUT"
+            echo "run_migrations=$INPUT_MIGRATIONS" >> "$GITHUB_OUTPUT"
+            echo "keep_releases=$INPUT_KEEP" >> "$GITHUB_OUTPUT"
+          else
+            echo "checkout_ref=$CI_SHA" >> "$GITHUB_OUTPUT"
+            echo "run_migrations=false" >> "$GITHUB_OUTPUT"
+            echo "keep_releases=5" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.deploy_context.outputs.checkout_ref }}
+
+      - name: Definir release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "release_id=$(git rev-parse --short=12 HEAD)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Validar build antes do deploy
+        run: npm run ci:check
+
+      - name: Validar secrets obrigatorios
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_APP_PATH: ${{ secrets.VPS_APP_PATH }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY VPS_APP_PATH; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Secret obrigatorio ausente: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Configurar SSH
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/equilibrio_bi_deploy_key"
+          chmod 600 "$HOME/.ssh/equilibrio_bi_deploy_key"
+          : "${VPS_PORT:=22}"
+          if [ -n "${VPS_SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> "$HOME/.ssh/known_hosts"
+          fi
+          chmod 644 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_APP_PATH: ${{ secrets.VPS_APP_PATH }}
+          VPS_SERVICE_NAME: ${{ secrets.VPS_SERVICE_NAME }}
+          VPS_RESTART_COMMAND: ${{ secrets.VPS_RESTART_COMMAND }}
+          APP_HEALTHCHECK_URL: ${{ secrets.APP_HEALTHCHECK_URL }}
+          SSH_KEY_PATH: ~/.ssh/equilibrio_bi_deploy_key
+          RUN_DB_MIGRATIONS: ${{ steps.deploy_context.outputs.run_migrations }}
+          KEEP_RELEASES: ${{ steps.deploy_context.outputs.keep_releases }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: bash scripts/deploy-vps.sh

@@ -1,0 +1,19 @@
+[Unit]
+Description=Equilibrio BI - Homologacao
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/equilibrio-bi-hml/current
+Environment=NODE_ENV=production
+Environment=APP_ENV=homologation
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

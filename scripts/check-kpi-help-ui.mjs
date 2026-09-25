@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_PACKAGE_PATH || 'playwright');
+const url = 'http://127.0.0.1:5175', output = path.resolve('tmp/kpi-help-qa');
+await fs.mkdir(output, { recursive: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const page = await context.newPage();
+const errors = [], checks = [], calls = [];
+let fail = false;
+page.on('pageerror', error => errors.push(error.message));
+await context.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort());
+await context.route('**/api/**', route => {
+  const endpoint = new URL(route.request().url()).pathname;
+  calls.push(endpoint);
+  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  if (endpoint === '/api/auth/me') return json({ user: { id: 1, nome: 'QA', perfil: 'cliente', empresa_id: 1, empresa: { id: 1, nome: 'Equilibrio TI', logo_url: '/logo_equilibrioti.png' } } });
+  if (endpoint === '/api/titulos/kpis') return fail ? json({ error: 'controlled' }, 503) : json({ totalFinanceiro: 120, totalAberto: 50, valorVencidoAberto: 10, quantidadeTitulos: 2, percentualBaixado: 0.5 });
+  if (endpoint === '/api/titulos/analises') return json({});
+  if (endpoint.startsWith('/api/titulos/')) return json([]);
+  throw new Error(`Unexpected endpoint ${endpoint}`);
+});
+const totalCard = () => page.locator('.kpi-card').filter({ hasText: 'Total financeiro' });
+const info = name => page.getByRole('button', { name: `Como é calculado: ${name}`, exact: true });
+const controls = () => page.getByRole('region', { name: 'Comparação dos indicadores' });
+const dialog = () => page.getByRole('dialog');
+try {
+  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.evaluate(() => localStorage.setItem('equilibrioti:auth-token', 'qa-help'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await totalCard().locator('strong').getByText(/120,00/).waitFor();
+  await controls().getByText(/duas datas definidas/).waitFor();
+  assert.equal(await dialog().count(), 0);
+  await info('Total financeiro').focus();
+  await page.keyboard.press('Enter');
+  await dialog().getByRole('heading', { name: 'Total financeiro', exact: true }).waitFor();
+  assert.match(await dialog().innerText(), /linha retornada pela view/);
+  assert.match(await dialog().innerText(), /Conciliação com o RM pendente/);
+  assert.match(await dialog().innerText(), /Conclusão da consulta não comprova atualização/);
+  await page.keyboard.press('Tab');
+  assert.equal(await dialog().evaluate(element => element.contains(document.activeElement)), true);
+  await page.screenshot({ path: path.join(output, 'help-desktop.png') });
+  await page.keyboard.press('Escape');
+  await dialog().waitFor({ state: 'hidden' });
+  assert.equal(await info('Total financeiro').evaluate(element => element === document.activeElement), true);
+  checks.push('Ajuda abre por teclado, distingue origem/consulta e devolve foco com Escape');
+
+  const before = calls.length;
+  await page.getByLabel('Comparar com', { exact: true }).selectOption('none');
+  assert.equal(await page.getByLabel('Recorte comparativo').isDisabled(), true);
+  assert.equal(await totalCard().getByText('Sem comparação', { exact: true }).count(), 1);
+  await page.getByLabel('Comparar com', { exact: true }).selectOption('previous');
+  await page.getByLabel('Recorte comparativo').selectOption('month');
+  assert.equal(calls.length, before);
+  checks.push('Modos nao fazem consultas extras nem apresentam variacao inventada');
+
+  await page.getByLabel('Data inicial', { exact: true }).fill('2025-02-01');
+  await page.getByLabel('Data final', { exact: true }).fill('2025-02-28');
+  assert.match(await controls().innerText(), /Sem limite de datas/);
+  const response = page.waitForResponse(response => response.url().includes('/api/titulos/kpis?') && response.url().includes('2025-02-01'));
+  await page.getByRole('button', { name: 'Aplicar filtros', exact: true }).click();
+  await response;
+  await page.getByLabel('Comparar com', { exact: true }).selectOption('year');
+  await controls().getByText(/29\/02\/2024/).waitFor();
+  assert.match(await controls().innerText(), /28 dias/);
+  assert.match(await controls().innerText(), /29 dias/);
+  assert.match(await controls().innerText(), /não foram normalizados por dia/);
+  assert.match(await controls().innerText(), /cobertura comprovada/);
+  await info('Total financeiro').click();
+  await dialog().getByText(/29\/02\/2024/).waitFor();
+  assert.match(await dialog().innerText(), /28 dias/);
+  await page.getByRole('button', { name: 'Fechar explicação' }).click();
+  checks.push('Datas aplicadas, duracoes bissextas e impedimento por cobertura aparecem no card e ajuda');
+
+  await info('Rateio em aberto').click();
+  assert.match(await dialog().innerText(), /Exclui o saldo restante das baixas parciais/);
+  assert.match(await dialog().innerText(), /não reconstrói o status passado/);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Vencidos', exact: true }).click();
+  await info('Valor vencido').click();
+  assert.match(await dialog().innerText(), /Hoje no relógio do servidor de origem/);
+  assert.match(await dialog().innerText(), /não redefine o atraso/);
+  await page.keyboard.press('Escape');
+  checks.push('Ajuda distingue rateio em aberto e atraso atual de saldo historico');
+
+  await page.getByRole('button', { name: 'Visão Geral', exact: true }).click();
+  fail = true;
+  await page.getByRole('button', { name: 'Atualizar dados', exact: true }).click();
+  await page.getByRole('alert', { name: 'Indicadores financeiros', exact: true }).waitFor();
+  assert.equal(await info('Total financeiro').count(), 0);
+  assert.equal(await totalCard().count(), 0);
+  fail = false;
+  await page.getByRole('button', { name: 'Tentar novamente: Indicadores financeiros', exact: true }).click();
+  await info('Total financeiro').waitFor();
+  await totalCard().getByText('Comparação indisponível', { exact: true }).waitFor();
+  checks.push('Falha e retry do bloco preservam indisponibilidade sem ajuda de dados antigos');
+
+  await page.getByRole('button', { name: 'Alternar tema', exact: true }).click();
+  await info('Total financeiro').click();
+  await page.screenshot({ path: path.join(output, 'help-dark.png') });
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Alternar tema', exact: true }).click();
+
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (await page.locator('.sidebar.open').count()) await page.getByRole('button', { name: 'Fechar menu', exact: true }).click();
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+    await controls().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, `comparison-${width}.png`) });
+    await info('Total financeiro').click();
+    await dialog().waitFor();
+    assert.equal(await dialog().evaluate(element => element.scrollWidth <= element.clientWidth + 1), true);
+    assert.equal(await dialog().evaluate(element => { const rect = element.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight; }), true);
+    await page.screenshot({ path: path.join(output, `help-${width}.png`) });
+    await dialog().locator('.kpi-help-body').evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const close = page.getByRole('button', { name: 'Fechar explicação' });
+    assert.equal(await close.evaluate(element => { const rect = element.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; }), true);
+    await page.screenshot({ path: path.join(output, `help-end-${width}.png`) });
+    await page.getByRole('button', { name: 'Fechar explicação' }).click();
+  }
+  checks.push('Controles e ajuda conferidos em 390/320 px com dialogo rolavel sem overflow');
+
+  await info('Total financeiro').click();
+  const other = await context.newPage();
+  await other.goto(url, { waitUntil: 'networkidle' });
+  await other.evaluate(() => localStorage.removeItem('equilibrioti:auth-token'));
+  await dialog().waitFor({ state: 'hidden' });
+  await page.locator('.login-page').waitFor();
+  assert.equal(await page.locator('.kpi-card').count(), 0);
+  await other.close();
+  checks.push('Logout por outra aba remove ajuda e contexto financeiro imediatamente');
+  assert.deepEqual(errors, []);
+  await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
+  console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
+} finally { await browser.close(); }

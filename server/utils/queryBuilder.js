@@ -1,5 +1,6 @@
 import { sql } from '../db/pool.js';
 import { DATE_FIELDS } from '../sql/titulosBase.js';
+import { assertDateFilters } from './dateFilters.js';
 
 const scalarFilters = {
   coligada: 'EMPRESA',
@@ -24,6 +25,16 @@ export function parseArray(value) {
   return String(value).split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+export function readMultiFilter(query, key) {
+  const canonical = `${key}[]`;
+  if (!Object.hasOwn(query, canonical)) return parseArray(query[key]);
+  if (Object.hasOwn(query, key)) throw Object.assign(new Error('Ambiguous filter encoding'), { status: 400 });
+  const value = query[canonical];
+  const values = Array.isArray(value) ? value : [value];
+  if (values.some(item => typeof item !== 'string')) throw Object.assign(new Error('Invalid filter value'), { status: 400 });
+  return values.filter(item => item !== '');
+}
+
 export function bindInput(request, name, value) {
   if (value instanceof Date) {
     request.input(name, sql.DateTime2, value);
@@ -37,10 +48,12 @@ export function bindInput(request, name, value) {
 }
 
 function bindDateOnly(request, name, value) {
-  request.input(name, sql.Date, value);
+  // Keep civil dates as validated text; SQL converts explicitly without a JS/driver timezone shift.
+  request.input(name, sql.NVarChar, value);
 }
 
 export function buildFilters(query, request, prefix = 'f') {
+  assertDateFilters(query);
   const clauses = ['1 = 1'];
   let index = 0;
 
@@ -54,7 +67,7 @@ export function buildFilters(query, request, prefix = 'f') {
   }
 
   for (const [key, column] of Object.entries(multiFilters)) {
-    const values = parseArray(query[key]);
+    const values = readMultiFilter(query, key);
     if (values.length) {
       const names = values.map((value) => {
         const name = `${prefix}${index++}`;
@@ -65,15 +78,15 @@ export function buildFilters(query, request, prefix = 'f') {
     }
   }
 
-  const dateField = DATE_FIELDS[query.dateField] || DATE_FIELDS.vencimento;
+  const dateField = Object.hasOwn(DATE_FIELDS, query.dateField) ? DATE_FIELDS[query.dateField] : DATE_FIELDS.vencimento;
   if (query.startDate) {
     const name = `${prefix}${index++}`;
-    clauses.push(`${dateField} >= @${name}`);
+    clauses.push(`${dateField} >= CONVERT(date, @${name}, 23)`);
     bindDateOnly(request, name, query.startDate);
   }
   if (query.endDate) {
     const name = `${prefix}${index++}`;
-    clauses.push(`${dateField} < DATEADD(day, 1, @${name})`);
+    clauses.push(`${dateField} < DATEADD(day, 1, CONVERT(date, @${name}, 23))`);
     bindDateOnly(request, name, query.endDate);
   }
 

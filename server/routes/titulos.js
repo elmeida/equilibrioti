@@ -1,24 +1,31 @@
 import { Router } from 'express';
-import ExcelJS from 'exceljs';
+import { buildTitulosWorkbook, EXPORT_COLUMNS, EXPORT_ROW_LIMIT } from '../utils/titulosExport.js';
 import { getPoolForEmpresa, sql } from '../db/pool.js';
-import { baseSubquery, DATE_FIELDS, ORDER_FIELDS } from '../sql/titulosBase.js';
-import { bindInput, buildFilters, jsonRows } from '../utils/queryBuilder.js';
+import { baseSubquery, titulosOrder } from '../sql/titulosBase.js';
+import { readPagination } from '../utils/pagination.js';
+import { buildFilters, jsonRows } from '../utils/queryBuilder.js';
 import { getCache, setCache } from '../utils/cache.js';
 import { requireEmpresa } from '../auth/middleware.js';
+import { getAuthPool } from '../db/authPool.js';
+import { recordAudit } from '../security/audit.js';
+import { assertDateFilters, calendarDaySpan } from '../utils/dateFilters.js';
 
 const router = Router();
 router.use(requireEmpresa);
+router.use((req, _res, next) => {
+  try { assertDateFilters(req.query); next(); } catch (error) { next(error); }
+});
 const SHORT_TTL = 4 * 60 * 1000;
 const FILTER_TTL = 8 * 60 * 1000;
 
 async function runFiltered(req, sqlText, options = {}) {
   const ttl = options.ttl ?? SHORT_TTL;
-  const cacheKey = `titulos:${req.empresaId}:${req.originalUrl}:${sqlText}`;
+  const cacheKey = `titulos:${req.empresaId}:${req.connectionVersion}:${req.originalUrl}:${sqlText}`;
   if (req.query.refresh !== '1' && ttl > 0) {
     const cached = getCache(cacheKey);
     if (cached) return cached;
   }
-  const pool = await getPoolForEmpresa(req.empresaId);
+  const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
   const request = pool.request();
   const where = buildFilters(req.query, request);
   const result = await request.query(sqlText.replaceAll('__WHERE__', where));
@@ -33,10 +40,8 @@ function monthExpr(column) {
 
 function vencimentoBucket(req) {
   if (req.query.startDate && req.query.endDate) {
-    const start = new Date(`${req.query.startDate}T00:00:00`);
-    const end = new Date(`${req.query.endDate}T00:00:00`);
-    const days = (end.getTime() - start.getTime()) / 86400000;
-    if (days >= 0 && days <= 31) return `CONVERT(char(10), DTVENC, 120)`;
+    const days = calendarDaySpan(req.query.startDate, req.query.endDate);
+    if (days !== null && days >= 0 && days <= 31) return `CONVERT(char(10), DTVENC, 120)`;
   }
   return monthExpr('DTVENC');
 }
@@ -55,22 +60,22 @@ router.get('/kpis', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Baixado Parcialmente' THEN VLRRATEIO ELSE 0 END), 0) AS totalBaixadoParcialmente,
         COUNT_BIG(*) AS quantidadeTitulos,
         COALESCE(SUM(VLRRATEIO) / NULLIF(COUNT_BIG(*), 0), 0) AS ticketMedio,
-        SUM(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN 1 ELSE 0 END) AS titulosVencidosAberto,
+        COUNT_BIG(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN 1 END) AS titulosVencidosAberto,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN VLRRATEIO ELSE 0 END), 0) AS valorVencidoAberto,
-        SUM(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC >= CAST(GETDATE() AS date) THEN 1 ELSE 0 END) AS titulosAVencer,
+        COUNT_BIG(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC >= CAST(GETDATE() AS date) THEN 1 END) AS titulosAVencer,
         COALESCE(SUM(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC >= CAST(GETDATE() AS date) THEN VLRRATEIO ELSE 0 END), 0) AS valorAVencer,
         COALESCE(SUM(VLRJUROS), 0) AS juros,
         COALESCE(SUM(VLRMULTA), 0) AS multas,
         COALESCE(SUM(VLRDESCONTO), 0) AS descontos,
         COALESCE(SUM(VLRBAIXA), 0) AS valorBaixa,
         COALESCE(SUM(VLRRATEIO), 0) - COALESCE(SUM(VLRBAIXA), 0) AS diferencaRateadoBaixado,
-        COALESCE(SUM(VLRBAIXA) / NULLIF(SUM(VLRRATEIO), 0), 0) AS percentualBaixado,
+        CASE WHEN SUM(VLRRATEIO) > 0 THEN SUM(VLRBAIXA) / NULLIF(SUM(VLRRATEIO), 0) END AS percentualBaixado,
         COUNT_BIG(DISTINCT CLIFOR) AS clientesUnicos,
         COUNT_BIG(DISTINCT NUMERODOC) AS documentosUnicos,
-        SUM(CASE WHEN VLRRATEIO = 0 OR VLRRATEIO IS NULL THEN 1 ELSE 0 END) AS titulosValorZerado,
+        COUNT_BIG(CASE WHEN VLRRATEIO = 0 OR VLRRATEIO IS NULL THEN 1 END) AS titulosValorZerado,
         COALESCE(SUM(CASE WHEN DTBAIXA > DTVENC THEN VLRRATEIO ELSE 0 END), 0) AS valorBaixadoAtraso,
         COALESCE(SUM(CASE WHEN DTBAIXA <= DTVENC THEN VLRRATEIO ELSE 0 END), 0) AS valorBaixadoPrazo,
-        COALESCE(AVG(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN DATEDIFF(day, DTVENC, GETDATE()) END), 0) AS mediaDiasAtraso,
+        AVG(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN CAST(DATEDIFF(day, DTVENC, GETDATE()) AS decimal(19, 4)) END) AS mediaDiasAtraso,
         COALESCE(MAX(CASE WHEN STATUS_FIN = 'Em Aberto' AND DTVENC < CAST(GETDATE() AS date) THEN DATEDIFF(day, DTVENC, GETDATE()) END), 0) AS maiorAtrasoDias
       FROM ${baseSubquery()}
       WHERE __WHERE__
@@ -281,7 +286,7 @@ router.get('/analises', async (req, res, next) => {
         SELECT TOP (10) CLIFOR, SUM(VLRRATEIO) valor FROM F GROUP BY CLIFOR ORDER BY valor DESC
       ),
       AtrasoCliente AS (
-        SELECT TOP (1) CLIFOR, AVG(DATEDIFF(day, DTVENC, DTBAIXA)) media
+        SELECT TOP (1) CLIFOR, AVG(CAST(DATEDIFF(day, DTVENC, DTBAIXA) AS decimal(19, 4))) media
         FROM F WHERE DTBAIXA > DTVENC GROUP BY CLIFOR ORDER BY media DESC
       ),
       CustoVencido AS (
@@ -293,9 +298,9 @@ router.get('/analises', async (req, res, next) => {
         COALESCE((SELECT SUM(valor) FROM TopClientes) / NULLIF((SELECT total FROM T), 0), 0) AS concentracaoTop10,
         (SELECT COUNT(*) FROM F WHERE DTBAIXA > DTVENC) AS qtdAtraso,
         COALESCE((SELECT SUM(VLRRATEIO) FROM F WHERE DTBAIXA > DTVENC), 0) AS valorAtraso,
-        COALESCE((SELECT AVG(DATEDIFF(day, DTVENC, DTBAIXA)) FROM F WHERE DTBAIXA > DTVENC), 0) AS mediaAtraso,
+        (SELECT AVG(CAST(DATEDIFF(day, DTVENC, DTBAIXA) AS decimal(19, 4))) FROM F WHERE DTBAIXA > DTVENC) AS mediaAtraso,
         (SELECT CLIFOR FROM AtrasoCliente) AS clienteMaiorAtrasoMedio,
-        COALESCE((SELECT media FROM AtrasoCliente), 0) AS maiorAtrasoMedio,
+        (SELECT media FROM AtrasoCliente) AS maiorAtrasoMedio,
         (SELECT CCUSTO FROM CustoVencido) AS centroMaiorValorVencido,
         COALESCE((SELECT valor FROM CustoVencido), 0) AS valorCentroMaiorVencido,
         COALESCE((SELECT SUM(CASE WHEN STATUS_FIN = 'Baixado' THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0) FROM F), 0) AS pctBaixado,
@@ -308,17 +313,10 @@ router.get('/analises', async (req, res, next) => {
 
 router.get('/tabela', async (req, res, next) => {
   try {
-    const cacheKey = `titulos:${req.empresaId}:filtros:${req.originalUrl}`;
-    const cached = getCache(cacheKey);
-    if (cached) return res.json(cached);
-    const pool = await getPoolForEmpresa(req.empresaId);
+    const { page, pageSize, offset } = readPagination(req.query);
+    const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
     const request = pool.request();
     const where = buildFilters(req.query, request);
-    const page = Math.max(Number(req.query.page || 1), 1);
-    const pageSize = Math.min(Math.max(Number(req.query.pageSize || 25), 10), 100);
-    const offset = (page - 1) * pageSize;
-    const sortBy = ORDER_FIELDS[req.query.sortBy] || 'DTVENC';
-    const sortDir = String(req.query.sortDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     request.input('offset', sql.Int, offset);
     request.input('pageSize', sql.Int, pageSize);
 
@@ -343,7 +341,7 @@ router.get('/tabela', async (req, res, next) => {
         END AS situacaoAtraso
       FROM ${baseSubquery()}
       WHERE ${where}
-      ORDER BY ${sortBy} ${sortDir}
+      ORDER BY ${titulosOrder(req.query)}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
     `);
 
@@ -456,10 +454,10 @@ router.get('/filtros/:tipo', async (req, res, next) => {
   if (!field) return res.status(404).json({ error: 'Filtro não encontrado.' });
 
   try {
-    const cacheKey = `titulos:${req.empresaId}:filtro:${req.params.tipo}:${req.query.q || ''}`;
+    const cacheKey = `titulos:${req.empresaId}:${req.connectionVersion}:filtro:${req.params.tipo}:${req.query.q || ''}`;
     const cached = getCache(cacheKey);
     if (cached) return res.json(cached);
-    const pool = await getPoolForEmpresa(req.empresaId);
+    const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
     const request = pool.request();
     const term = String(req.query.q || '').trim();
     let where = `NULLIF(${field}, '') IS NOT NULL`;
@@ -482,27 +480,31 @@ router.get('/filtros/:tipo', async (req, res, next) => {
 
 router.get('/export', async (req, res, next) => {
   try {
-    const pool = await getPoolForEmpresa(req.empresaId);
+    await recordAudit(getAuthPool(), req, 'financial.export', { tenantId: req.empresaId, outcome: 'authorized' });
+    const pool = await getPoolForEmpresa(req.empresaId, req.connectionVersion);
     const request = pool.request();
     const where = buildFilters(req.query, request);
     const result = await request.query(`
-      SELECT TOP (5000)
-        EMPRESA, CODCOLIGADA, REF, CODCFO, CLIFOR, NUMERODOC, PAGREC, STATUS_FIN, STATUS_BAIXA,
-        DTVENC, DTEMISSAO, DTBAIXA, TIPODOC, CCUSTO, NATFINANCEIRA, VLRRATEIO,
-        VLRBAIXA, VLRORIGINAL, VLRDESCONTO, VLRJUROS, VLRMULTA, CONTA
+      SELECT TOP (${EXPORT_ROW_LIMIT + 1})
+        ${EXPORT_COLUMNS.join(', ')}
       FROM ${baseSubquery()}
       WHERE ${where}
-      ORDER BY DTVENC DESC
+      ORDER BY ${titulosOrder(req.query)}
     `);
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Titulos');
-    sheet.columns = Object.keys(result.recordset[0] || { EMPRESA: '' }).map((key) => ({ header: key, key, width: 18 }));
-    sheet.addRows(result.recordset);
+    // A sentinel row detects overflow in the same query, without a separate count/read race.
+    if (result.recordset.length > EXPORT_ROW_LIMIT) {
+      return res.status(422).json({
+        code: 'EXPORT_LIMIT_EXCEEDED', limit: EXPORT_ROW_LIMIT,
+        error: 'O recorte ultrapassa 5.000 registros. Reduza o período ou refine os filtros para exportar todos os registros, sem cortes.',
+      });
+    }
+    const buffer = await buildTitulosWorkbook(result.recordset);
+    if (res.destroyed) return;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="titulos-financeiros.xlsx"');
-    await workbook.xlsx.write(res);
-    res.end();
+    res.setHeader('X-Export-Row-Count', String(result.recordset.length));
+    res.send(Buffer.from(buffer));
   } catch (err) { next(err); }
 });
 

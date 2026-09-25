@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_PACKAGE_PATH || 'playwright');
+const url = 'http://127.0.0.1:5175', output = path.resolve('tmp/chart-values-qa');
+await fs.mkdir(output, { recursive: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const page = await context.newPage();
+const errors = [], checks = [], requests = [];
+let distribution = [{ nome: 'A Pagar', valor: 0, quantidade: 4 }, { nome: 'A Receber', valor: 100, quantidade: 1 }];
+page.on('pageerror', error => errors.push(error.message));
+await context.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort());
+await context.route('**/api/**', route => {
+  const target = new URL(route.request().url()), endpoint = target.pathname;
+  requests.push(target);
+  const json = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  if (endpoint === '/api/auth/me') return json({ user: { id: 1, nome: 'QA', perfil: 'cliente', empresa_id: 1, empresa: { id: 1, nome: 'Equilibrio TI', logo_url: '/logo_equilibrioti.png' } } });
+  if (endpoint === '/api/titulos/kpis') return json({ totalFinanceiro: 100, quantidadeTitulos: 5 });
+  if (endpoint === '/api/titulos/graficos/pagar-receber') return json(distribution);
+  if (endpoint === '/api/titulos/graficos/status') return json([{ nome: 'Em Aberto', valor: null, quantidade: null }, { nome: 'Baixado', valor: 0, quantidade: 0 }]);
+  if (endpoint === '/api/titulos/graficos/evolucao-vencimento') return json([{ mes: '2026-01', serie: 'A Pagar', valor: 100 }, { mes: '2026-03', serie: 'A Pagar', valor: -50 }, { mes: '2026-03', serie: 'A Receber', valor: 0 }]);
+  if (endpoint === '/api/titulos/graficos/evolucao-baixa') return json([{ mes: '2026-01', serie: 'Baixado', valor: 0 }, { mes: '2026-02', serie: 'Baixado', valor: null }]);
+  if (endpoint === '/api/titulos/graficos/encargosMes') return json([{ mes: '2026-01', juros: 0, multas: -10, descontos: null }]);
+  if (endpoint === '/api/titulos/graficos/previstoRealizado') return json([{ mes: '2026-01', previsto: 20, realizado: null }]);
+  if (endpoint === '/api/titulos/graficos/matrizCalor') return json([{ ano: 2026, mes: 1, valor: 0 }, { ano: 2026, mes: 2, valor: -20 }, { ano: 2026, mes: 3, valor: 100 }]);
+  if (endpoint === '/api/titulos/rankings/clientes') return json(Array.from({ length: 11 }, (_, i) => ({ nome: `Cliente QA ${i}`, totalRateio: i === 0 ? null : i === 1 ? -10 : i, quantidade: i })));
+  if (endpoint === '/api/titulos/graficos/coligadas') return json([{ nome: 'Empresa QA', valor: 50, quantidade: 1 }]);
+  if (endpoint === '/api/titulos/analises') return json({});
+  if (endpoint.startsWith('/api/titulos/')) return json([]);
+  throw new Error(`Unexpected endpoint ${endpoint}`);
+});
+const block = name => page.locator(`[data-block="${name}"]`);
+async function values(name) {
+  const target = block(name);
+  await target.locator('summary').click();
+  return target.getByRole('table');
+}
+try {
+  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.evaluate(() => localStorage.setItem('equilibrioti:auth-token', 'qa-chart-values'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await block('pagarReceber').locator('.recharts-pie').waitFor();
+  assert.equal(await block('pagarReceber').locator('.recharts-pie-sector path').count(), 1);
+  const amounts = await values('pagarReceber');
+  assert.match(await amounts.getByRole('row').filter({ hasText: 'A Pagar' }).innerText(), /0,00/);
+  checks.push('Zero com registros nao ganha fatia artificial; tabela preserva valor zero');
+
+  const status = await values('status');
+  assert.match(await status.getByRole('row').filter({ hasText: 'Em Aberto' }).innerText(), /Indisponível/);
+  assert.match(await status.getByRole('row').filter({ hasText: 'Baixado' }).innerText(), /0,00/);
+  assert.equal(await block('status').locator('.recharts-pie').count(), 0);
+  checks.push('Ausencia de valor e contagem nao vira zero nem percentual');
+
+  const series = await values('evolucaoVencimento');
+  assert.match(await series.innerText(), /início de lacuna/);
+  assert.match(await series.innerText(), /-.*50,00/);
+  assert.match(await series.innerText(), /Indisponível/);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: path.join(output, 'charts-desktop.png'), fullPage: true, animations: 'disabled' });
+  checks.push('Series mantem sinal, zero e lacuna mensal com alternativa tabular');
+
+  const filter = amounts.getByRole('button', { name: 'Filtrar por A Pagar', exact: true });
+  const filtered = page.waitForResponse(response => response.url().includes('/graficos/pagar-receber?') && response.url().includes('tipo=A+Pagar'));
+  await filter.focus();
+  await page.keyboard.press('Enter');
+  await filtered;
+  assert(requests.some(request => request.searchParams.get('tipo') === 'A Pagar'));
+  checks.push('Filtro do grafico pode ser acionado por teclado');
+
+  const expand = block('clientes').getByRole('button', { name: 'Ver todos', exact: true });
+  await expand.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /Cliente QA 10/);
+  const last = dialog.locator('.chart-summary button').last();
+  await last.focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await dialog.getByRole('button', { name: 'Fechar gráfico' }).evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await last.evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(await expand.evaluate(el => el === document.activeElement), true);
+  checks.push('Ampliacao acessivel: todos os retornados, foco contido, Escape e retorno de foco');
+
+  distribution = [{ nome: 'A Pagar', valor: -20, quantidade: 1 }, { nome: 'A Receber', valor: 100, quantidade: 1 }];
+  await page.getByRole('button', { name: 'Atualizar dados', exact: true }).click();
+  await block('pagarReceber').locator('.recharts-bar').waitFor();
+  assert.equal(await block('pagarReceber').locator('.recharts-pie').count(), 0);
+  await block('pagarReceber').getByRole('button', { name: 'Ver todos', exact: true }).click();
+  await dialog.locator('.recharts-bar').waitFor();
+  assert.equal(await dialog.locator('.recharts-pie').count(), 0);
+  await page.keyboard.press('Escape');
+  checks.push('Valores negativos usam barras tambem na ampliacao');
+
+  distribution = [{ nome: 'A Pagar', valor: 0, quantidade: 2 }, { nome: 'A Receber', valor: 0, quantidade: 1 }];
+  await page.getByRole('button', { name: 'Atualizar dados', exact: true }).click();
+  await block('pagarReceber').getByRole('status').getByText('Valores zerados', { exact: true }).waitFor();
+  assert.equal(await block('pagarReceber').locator('.recharts-pie-sector').count(), 0);
+  checks.push('Distribuicao inteiramente zerada nao inventa proporcoes');
+
+  await page.getByRole('button', { name: 'Fluxo Financeiro', exact: true }).click();
+  await block('matrizCalor').locator('.heatmap').waitFor();
+  assert.equal(await block('matrizCalor').locator('[data-value-state="missing"]').count(), 9);
+  for (const state of ['zero', 'negative', 'positive']) assert.equal(await block('matrizCalor').locator(`[data-value-state="${state}"]`).count(), 1);
+  const matrix = await values('matrizCalor');
+  assert.match(await matrix.getByRole('row').filter({ hasText: 'ABR/2026' }).innerText(), /Indisponível/);
+  assert.match(await matrix.getByRole('row').filter({ hasText: 'FEV/2026' }).innerText(), /-.*20,00/);
+  for (const name of ['evolucaoBaixa', 'encargosMes', 'previstoRealizado']) assert.match(await (await values(name)).innerText(), /Indisponível/);
+  checks.push('Matriz distingue quatro estados e todas as familias possuem valores acessiveis');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.locator('.sidebar.open').count()) await page.getByRole('button', { name: 'Fechar menu', exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: path.join(output, 'charts-flow-mobile.png'), fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: 'Visão Geral', exact: true }).click();
+  await block('pagarReceber').locator('.chart-summary').waitFor();
+  await block('pagarReceber').scrollIntoViewIfNeeded();
+  const body = await block('pagarReceber').locator('.chart-body').boundingBox();
+  const details = await block('pagarReceber').locator('.chart-values').boundingBox();
+  assert(body.y + body.height <= details.y + 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  await page.screenshot({ path: path.join(output, 'charts-mobile.png') });
+  await block('pagarReceber').getByRole('button', { name: 'Ver todos', exact: true }).click();
+  await dialog.waitFor();
+  await page.screenshot({ path: path.join(output, 'chart-modal-mobile.png') });
+  const bounds = await dialog.boundingBox();
+  assert(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 391 && bounds.y + bounds.height <= 845);
+  await page.keyboard.press('Escape');
+  checks.push('Celular sem transbordamento horizontal ou sobreposicao entre resumo e tabela');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByRole('button', { name: 'Alternar tema', exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+  await block('pagarReceber').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'charts-mobile-dark-320.png') });
+  await block('pagarReceber').getByRole('button', { name: 'Ver todos', exact: true }).click();
+  await dialog.waitFor();
+  const small = await dialog.boundingBox();
+  assert(small.x >= 0 && small.y >= 0 && small.x + small.width <= 321 && small.y + small.height <= 741);
+  await page.screenshot({ path: path.join(output, 'chart-modal-dark-320.png') });
+  await page.keyboard.press('Escape');
+  checks.push('Tema escuro e ampliacao em 320 px preservam leitura e fechamento');
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ ok: true, checks, errors, output }, null, 2));
+} catch (error) {
+  await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true });
+  console.error(await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth, overflow: [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).position !== 'fixed').slice(0, 15).map(el => ({ tag: el.tagName, className: String(el.className), right: el.getBoundingClientRect().right })) })));
+  throw error;
+} finally { await browser.close(); }

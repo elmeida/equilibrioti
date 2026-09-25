@@ -1,17 +1,22 @@
+import { finiteValue } from './analytics';
+
 export const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 export const integer = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
 export const percent = new Intl.NumberFormat('pt-BR', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
 export function fmtMoney(value: unknown) {
-  return currency.format(Number(value || 0));
+  const number = finiteValue(value);
+  return number === null ? 'Indisponível' : currency.format(number);
 }
 
 export function fmtInt(value: unknown) {
-  return integer.format(Number(value || 0));
+  const number = finiteValue(value);
+  return number === null ? 'Indisponível' : integer.format(number);
 }
 
 export function fmtPercent(value: unknown) {
-  return percent.format(Number(value || 0));
+  const number = finiteValue(value);
+  return number === null ? 'Indisponível' : percent.format(number);
 }
 
 export function fmtDate(value: unknown) {
@@ -53,8 +58,10 @@ export function pivot(rows: any[], index = 'mes', series = 'serie', value = 'val
   const map = new Map<string, Record<string, any>>();
   rows.forEach((row) => {
     const key = row[index] || 'Não informado';
-    const item = map.get(key) || { [index]: key };
-    item[row[series] || 'Não informado'] = Number(row[value] || 0);
+    const item = map.get(key) || { [index]: key, values: Object.create(null) };
+    const name = row[series] || 'Não informado';
+    // Duplicate aggregates are ambiguous; never silently overwrite or double count.
+    item.values[name] = Object.prototype.hasOwnProperty.call(item.values, name) ? null : finiteValue(row[value]);
     map.set(key, item);
   });
   return Array.from(map.values());

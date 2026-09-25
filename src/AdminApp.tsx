@@ -1,13 +1,17 @@
-import { useEffect, useState, FormEvent } from 'react';
-import { Building2, Users, ExternalLink, Plus, LayoutGrid, Menu, Moon, Sun, Activity, Edit2, KeyRound, Check, X, ShieldAlert, Upload } from 'lucide-react';
+import { useEffect, useRef, useState, FormEvent } from 'react';
+import { Building2, Users, ExternalLink, Plus, LayoutGrid, Menu, Moon, Sun, Activity, Edit2, KeyRound, Check, X, ShieldAlert, Upload, ScrollText } from 'lucide-react';
+import { lazyModule } from './components/DeferredModule';
+import { isSafeLogoReference, safeLogoReference } from '../server/security/logo-reference.js';
 import { AuthUser, adminGetEmpresas, adminGetUsuarios, adminSaveEmpresa, adminSaveUsuario, adminTestConnection, adminUploadLogo, adminResetPassword } from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { fmtInt } from './utils/format';
 
+const AdminAudit = lazyModule(async () => ({ default: (await import('./components/AdminAudit')).AdminAudit }), 'Auditoria');
+
 export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, onImpersonate: (empresa: any) => void, onLogout: () => void }) {
   const initialSidebarOpen = typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1025px)').matches;
   const [sidebarOpen, setSidebarOpen] = useState(initialSidebarOpen);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'empresas' | 'usuarios'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'empresas' | 'usuarios' | 'auditoria'>('dashboard');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const navItems = (
@@ -23,6 +27,9 @@ export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, on
       <a className={activeTab === 'usuarios' ? 'active' : ''} onClick={() => setActiveTab('usuarios')} title="Usuários">
         <Users size={20} />
         <span>Usuários</span>
+      </a>
+      <a href="#auditoria" className={activeTab === 'auditoria' ? 'active' : ''} onClick={event => { event.preventDefault(); setActiveTab('auditoria'); if (!window.matchMedia('(min-width: 1025px)').matches) setSidebarOpen(false); }} title="Auditoria">
+        <ScrollText size={20} /><span>Auditoria</span>
       </a>
     </>
   );
@@ -57,6 +64,7 @@ export function AdminApp({ user, onImpersonate, onLogout }: { user: AuthUser, on
           {activeTab === 'dashboard' && <AdminDashboard />}
           {activeTab === 'empresas' && <EmpresasList onImpersonate={onImpersonate} />}
           {activeTab === 'usuarios' && <UsuariosList />}
+          {activeTab === 'auditoria' && <AdminAudit />}
         </main>
       </div>
     </div>
@@ -67,12 +75,13 @@ function AdminDashboard() {
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     Promise.all([adminGetEmpresas(), adminGetUsuarios()]).then(([emps, usrs]) => {
       setEmpresas(emps);
       setUsuarios(usrs);
-    }).finally(() => setLoading(false));
+    }).catch(err => { if (err.name !== 'AbortError') setError('Não foi possível carregar o painel.'); }).finally(() => setLoading(false));
   }, []);
 
   const totalUsuariosAtivos = usuarios.filter(u => u.ativo).length;
@@ -82,6 +91,7 @@ function AdminDashboard() {
   })).sort((a, b) => b.total - a.total);
 
   if (loading) return <div className="tab-panel"><p>Carregando indicadores...</p></div>;
+  if (error) return <div className="error-box" role="alert">{error}</div>;
 
   return (
     <section className="tab-panel">
@@ -123,10 +133,12 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingEmpresa, setEditingEmpresa] = useState<any>(null);
+  const [error, setError] = useState('');
 
   const load = () => {
     setLoading(true);
-    adminGetEmpresas().then(setEmpresas).finally(() => setLoading(false));
+    setError('');
+    adminGetEmpresas().then(setEmpresas).catch(err => { if (err.name !== 'AbortError') setError('Não foi possível carregar as empresas.'); }).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -142,6 +154,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
         <button className="ghost-button apply-button" onClick={() => setEditingEmpresa({})}><Plus size={16} /> Nova Empresa</button>
       </div>
 
+      {error && <div className="error-box" role="alert">{error}</div>}
       <div className="table-card" style={{ overflowX: 'auto' }}>
         {loading ? <div style={{ padding: 20 }}>Carregando...</div> : (
           <table className="admin-table">
@@ -160,7 +173,7 @@ function EmpresasList({ onImpersonate }: { onImpersonate: (empresa: any) => void
                 <tr key={emp.id}>
                   <td>{emp.id}</td>
                   <td><strong>{emp.nome}</strong></td>
-                  <td>{emp.logo_url && <img src={emp.logo_url} alt={emp.nome} style={{ height: 30, objectFit: 'contain' }} />}</td>
+                  <td>{safeLogoReference(emp.logo_url) ? <img src={safeLogoReference(emp.logo_url)} alt={emp.nome} style={{ height: 30, objectFit: 'contain' }} /> : emp.logo_blocked ? <span>Logo bloqueada</span> : null}</td>
                   <td>{emp.db_host}:{emp.db_port}</td>
                   <td>{emp.db_database}</td>
                   <td>
@@ -197,6 +210,8 @@ function EmpresaFormModal({ empresa, onClose, onSave }: { empresa: any; onClose:
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const logoInput = useRef<HTMLInputElement>(null);
   const isNew = !empresa.id;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -230,24 +245,30 @@ function EmpresaFormModal({ empresa, onClose, onSave }: { empresa: any; onClose:
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+    setError('');
+    if (file.size > 2 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Envie PNG, JPG ou WebP de até 2 MB.'); return;
+    }
+    setUploading(true);
     try {
       const res = await adminUploadLogo(file);
-      setFormData({ ...formData, logo_url: res.url });
+      setFormData(current => ({ ...current, logo_url: res.url }));
     } catch (err: any) {
-      alert(err.message);
-    }
+      if (err.name !== 'AbortError') setError(err.message);
+    } finally { setUploading(false); }
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="password-modal" style={{ width: 500, maxWidth: '90vw' }} onSubmit={handleSubmit} onClick={e => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={() => { if (!uploading) onClose(); }}>
+      <form className="password-modal company-modal" style={{ width: 500, maxWidth: '90vw' }} onSubmit={handleSubmit} onClick={e => e.stopPropagation()}>
         <header>
           <div>
             <span className="eyebrow">{isNew ? 'Cadastro' : 'Edição'}</span>
             <h3>{isNew ? 'Nova Empresa' : 'Editar Empresa'}</h3>
           </div>
-          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="icon-button" onClick={onClose} disabled={uploading} aria-label="Fechar cadastro de empresa"><X size={18} /></button>
         </header>
 
         <label>
@@ -255,16 +276,17 @@ function EmpresaFormModal({ empresa, onClose, onSave }: { empresa: any; onClose:
           <input className="login-input" style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} type="text" value={formData.nome} onChange={e => setFormData({ ...formData, nome: e.target.value })} required />
         </label>
 
-        <label>
-          Logo (URL ou Upload)
+        <div>
+          <label htmlFor="company-logo-path">Logo (caminho local ou envio)</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input className="login-input" style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} type="text" value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} />
-            <label className="ghost-button" style={{ margin: 0, padding: '0 16px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-              <Upload size={18} /> Upload
-              <input type="file" style={{ display: 'none' }} accept="image/*" onChange={handleUpload} />
-            </label>
+            <input id="company-logo-path" className="login-input" style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} type="text" value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} />
+            <button type="button" className="ghost-button" title="Enviar logo" disabled={uploading} onClick={() => logoInput.current?.click()} style={{ margin: 0, padding: '0 16px', display: 'flex', alignItems: 'center' }}>
+              <Upload size={18} /> {uploading ? 'Enviando...' : 'Enviar'}
+            </button>
+            <input ref={logoInput} type="file" aria-label="Enviar logo" style={{ display: 'none' }} accept="image/png,image/jpeg,image/webp" disabled={uploading} onChange={handleUpload} />
           </div>
-        </label>
+          {safeLogoReference(formData.logo_url) && <img className="company-logo-preview" src={safeLogoReference(formData.logo_url)} alt="Prévia da logo" />}
+        </div>
 
         <div style={{ display: 'flex', gap: 16 }}>
           <label style={{ flex: 2 }}>
@@ -293,14 +315,15 @@ function EmpresaFormModal({ empresa, onClose, onSave }: { empresa: any; onClose:
           </label>
         </div>
 
-        {error && <div className="login-error">{error}</div>}
+        {formData.logo_url && !isSafeLogoReference(formData.logo_url) && <div className="login-error" role="alert">Logo bloqueada. Envie uma imagem válida ou informe um caminho local.</div>}
+        {error && <div className="login-error" role="alert">{error}</div>}
         {message && <div className="login-success">{message}</div>}
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+        <div className="company-form-actions" style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <button type="button" className="ghost-button" onClick={handleTest} disabled={testing || !formData.db_host || !formData.db_user}>{testing ? 'Testando...' : 'Testar Conexão'}</button>
           <span style={{ flex: 1 }}></span>
-          <button type="button" className="ghost-button" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="login-submit" style={{ width: 'auto', marginTop: 0 }} disabled={loading}>{loading ? 'Salvando...' : 'Salvar Empresa'}</button>
+          <button type="button" className="ghost-button" onClick={onClose} disabled={uploading}>Cancelar</button>
+          <button type="submit" className="login-submit" style={{ width: 'auto', marginTop: 0 }} disabled={loading || uploading || !isSafeLogoReference(formData.logo_url)}>{loading ? 'Salvando...' : 'Salvar Empresa'}</button>
         </div>
       </form>
     </div>
@@ -313,13 +336,15 @@ function UsuariosList() {
   const [loading, setLoading] = useState(true);
   const [editingUsuario, setEditingUsuario] = useState<any>(null);
   const [resettingPasswordId, setResettingPasswordId] = useState<number | null>(null);
+  const [error, setError] = useState('');
 
   const load = () => {
     setLoading(true);
+    setError('');
     Promise.all([adminGetUsuarios(), adminGetEmpresas()]).then(([usrs, emps]) => {
       setUsuarios(usrs);
       setEmpresas(emps);
-    }).finally(() => setLoading(false));
+    }).catch(err => { if (err.name !== 'AbortError') setError('Não foi possível carregar os usuários.'); }).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -330,6 +355,7 @@ function UsuariosList() {
         <div>
           <span className="eyebrow"><Users size={15} /> Acessos</span>
           <h2>Usuários do Sistema</h2>
+          {error && <div className="error-box" role="alert">{error}</div>}
           <p>Gerencie o acesso à plataforma e vincule usuários às suas respectivas empresas.</p>
         </div>
         <button className="ghost-button apply-button" onClick={() => setEditingUsuario({})}><Plus size={16} /> Novo Usuário</button>
