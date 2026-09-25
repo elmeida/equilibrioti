@@ -1,5 +1,9 @@
 # Checklist de ativacao CI/CD - VPS de homologacao
 
+> Atualizacao 25/09/2026: o [checklist vigente e diagnostico](revisao-cicd-2026-09-25.md)
+> substitui a configuracao abaixo. GitHub inspecionado: sem environment, regras ou secrets.
+> Nao ativar CD antes das protecoes e do ensaio de recuperacao. Historico preservado a seguir.
+
 Data: 2026-07-14
 
 Atualizacao 21/09/2026: publicacao manual de homologacao concluida em infraestrutura existente, com SSH, backup, migrations, runtime restrito e HTTPS. O checklist abaixo e historico do plano de CI/CD, nao evidencia de execucao do workflow. GitHub permanece sem acesso de escrita pela conta atual. Consulte o [registro atual](registro-publicacao-hml-2026-09-21.md) antes de executar preparacao ou migrations novamente.

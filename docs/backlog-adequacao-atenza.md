@@ -3,6 +3,19 @@
 Data de abertura: 2026-07-09  
 Criticidade geral: alta antes de Go-Live
 
+## Atualizacao 25/09/2026 - CI/CD
+
+Historico abaixo preservado. Estado mais recente: [revisao e checklist](revisao-cicd-2026-09-25.md).
+
+| Item | Responsavel | Status |
+|---|---|---|
+| Bloquear CD por padrao, limitar origem/main, fixar SHA, exigir known_hosts e separar migrations | Desenvolvimento | Implementado, 679 testes e build aprovados; PR #1; sem deploy |
+| Reconciliar runtime Node 22 e servico de homologacao; entradas validadas antes do SSH | Desenvolvimento | Implementado; confirmacao operacional pendente |
+| Proteger main e criar environment com aprovacao | Administrador GitHub | Ausentes em consulta 25/09; aguarda aprovacao/configuracao |
+| Cadastrar chave exclusiva, usuario restrito e secrets do environment | Infra Atenza | Pendente; nenhum secret cadastrado no GitHub consultado |
+| Ensaiar deploy/rollback, compensacao de falha e restauracao de backup | Desenvolvimento/Infra | Pendente; requisito para ativar CD |
+| Verificar checksum, Actions fixadas por SHA, retencao e monitoramento de disco | Desenvolvimento/Infra | Pendente; limpeza automatica de releases removida |
+
 ## Prioridade 0 - antes de producao
 
 | Item | Tipo | Responsavel sugerido | Status |

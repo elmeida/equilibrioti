@@ -8,7 +8,7 @@ const source = readFileSync(new URL('../scripts/deploy-vps.sh', import.meta.url)
 const rollback = readFileSync(new URL('../scripts/rollback-vps.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const remote = source.split("<<'REMOTE_SCRIPT'\n")[1].split('\nREMOTE_SCRIPT')[0];
 const restartBlock = remote.slice(remote.indexOf('restart_app()'), remote.indexOf('\nSERVER_PORT='));
-const healthBlock = remote.slice(remote.indexOf('for attempt in'), remote.indexOf('\nif [ "$KEEP_RELEASES"'));
+const healthBlock = remote.slice(remote.indexOf('for attempt in'), remote.indexOf('\necho "Deploy concluido:'));
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const dirs = [];
 function run(code) {
@@ -43,7 +43,7 @@ describe('entrega de homologacao sem VPS', () => {
   });
   it('confere migrations antes de alterar release atual', () => {
     expect(remote.indexOf('npm run db:check')).toBeLessThan(remote.indexOf('ln -sfn "$RELEASE_PATH" "$CURRENT_LINK"'));
-    expect(remote).toContain('if [ "$RUN_DB_MIGRATIONS" = "true" ]; then\n  npm run db:migrate\nfi');
+    expect(remote).not.toContain('npm run db:migrate');
   });
   it('reinicio bem sucedido nao aciona recuperacao', () => {
     const result = run(`set -euo pipefail

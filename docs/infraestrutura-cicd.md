@@ -1,5 +1,9 @@
 # Infraestrutura e CI/CD - Equilibrio BI
 
+> Atualizacao 25/09/2026: consulte a [revisao vigente](revisao-cicd-2026-09-25.md).
+> CD desativado por padrao, destino restrito, sem migrations, sem keyscan e sem limpeza
+> automatica. Os exemplos abaixo sao historicos e nao devem ser executados como roteiro atual.
+
 Data: 2026-07-14
 
 Atualizacao 21/09/2026: homologacao publicada manualmente em https://equilibrio-bi-homologacao.atenza.digital, servico `equilibrioti.service`, porta interna 3032, releases em `/var/www/equilibrio-bi-hml`. Migrations 001/002/003 e conversao das credenciais aplicadas com backup e autorizacao. O workflow ainda nao foi ativado; a conta GitHub atual nao tem escrita no remoto. [Estado real e limites](registro-publicacao-hml-2026-09-21.md). Exemplos/pendencias anteriores abaixo sao historicos e devem ser reconciliados antes de configurar o CD.
