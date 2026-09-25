@@ -11,7 +11,7 @@ Historico abaixo preservado. Estado mais recente: [revisao e checklist](revisao-
 |---|---|---|
 | Bloquear CD por padrao, limitar origem/main, fixar SHA, exigir known_hosts e separar migrations | Desenvolvimento | Implementado, 679 testes e build aprovados; PR #1; sem deploy |
 | Reconciliar runtime Node 22 e servico de homologacao; entradas validadas antes do SSH | Desenvolvimento | Implementado; confirmacao operacional pendente |
-| Proteger main e criar environment com aprovacao | Administrador GitHub | Ausentes em consulta 25/09; aguarda aprovacao/configuracao |
+| Proteger main e criar environment com aprovacao | Administrador GitHub | Aplicado e relido em 25/09: PR + 1 aprovacao + CI obrigatorio; homologation somente main, aprovacao elmeida, sem bypass; CD desligado |
 | Cadastrar chave exclusiva, usuario restrito e secrets do environment | Infra Atenza | Pendente; nenhum secret cadastrado no GitHub consultado |
 | Ensaiar deploy/rollback, compensacao de falha e restauracao de backup | Desenvolvimento/Infra | Pendente; requisito para ativar CD |
 | Verificar checksum, Actions fixadas por SHA, retencao e monitoramento de disco | Desenvolvimento/Infra | Pendente; limpeza automatica de releases removida |

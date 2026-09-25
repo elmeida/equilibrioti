@@ -7,9 +7,45 @@ alteracao de banco, views, DNS, credenciais ou permissoes nesta etapa.
 Este documento substitui as orientacoes operacionais antigas de CI/CD. Os documentos
 de julho e o registro de publicacao manual de setembro ficam preservados como historico.
 
-## Diagnostico confirmado no GitHub
+## Atualizacao - protecoes aplicadas
 
-Consulta somente leitura nas telas de configuracao de `elmeida/equilibrioti`:
+Apos autorizacao de continuidade e confirmacao de acesso pelo proprietario, foram
+salvas e relidas na interface do GitHub as configuracoes abaixo. Esta atualizacao
+altera apenas controles do repositorio; nao houve merge, deploy nem acesso a VPS/banco.
+
+- Regra classica `main` (ID 83717470), aplicada a uma branch: PR obrigatoria, uma
+  aprovacao, descarte de aprovacoes antigas e aprovacao do ultimo push por outra pessoa.
+- Check `Build e quality gate`, origem GitHub Actions, obrigatorio com branch atualizada.
+- Conversas resolvidas; regras aplicadas tambem aos administradores. Force push e
+  exclusao da main nao permitidos. Sem exigencia de deploy previo ao merge, evitando
+  dependencia circular com publicacao exclusiva da main.
+- Environment `homologation` criado (ID 22776553548), com aprovacao obrigatoria de
+  `elmeida` e bypass administrativo desabilitado.
+- Lista explicita de deployment: uma branch `main`, zero tags. Nao foi utilizada
+  a opcao generica de permitir toda branch protegida.
+- `Prevent self-review` permanece desmarcado no environment: o proprietario pode
+  aprovar um disparo proprio de homologacao. Isso nao dispensa a revisao independente
+  do codigo exigida na main. Separacao adicional de operadores/aprovadores pode ser
+  definida antes da ativacao; nao foi delegado poder de aprovacao a outra conta.
+- Nenhum secret ou variavel adicionado. `HML_CD_ENABLED` e
+  `HML_AUTO_DEPLOY_ENABLED` permanecem ausentes; CD novo segue desativado por padrao.
+
+Validacao por leitura das telas apos salvar. A API de protecao retornou 403 para a
+integracao; nao foram ampliados seus acessos. Nao foi tentado um push proibido ou
+deploy para testar as restricoes, pois isso alteraria o escopo desta etapa.
+
+O codigo das novas travas ainda esta na PR #1, nao na main. Os workflows antigos
+da main nao devem ser acionados; a ausencia de credenciais e a protecao do environment
+sao barreiras adicionais enquanto a PR aguarda revisao. Nao aprovar execucoes pendentes
+nem cadastrar a chave antes da preparacao operacional e da integracao revisada.
+
+Proximo passo: revisao independente da PR pelo colaborador e fechamento das lacunas
+operacionais (runtime das Actions, checksum, recuperacao compensatoria e ensaio de
+backup/restore). Credenciais e primeiro deploy seguem sujeitos a autorizacao especifica.
+
+## Diagnostico inicial confirmado no GitHub
+
+Consulta anterior a aplicacao das protecoes, preservada como historico:
 
 - Nenhum environment cadastrado, inclusive `homologation`.
 - Nenhuma regra classica de protecao de branch e nenhum ruleset.
@@ -53,7 +89,8 @@ publicada manualmente; estes workflows ainda precisam de ativacao e ensaio opera
 
 ## Configuracao a aprovar antes de ativar
 
-Responsavel: administrador do repositorio e Infra Atenza. Nao aplicada nesta etapa.
+Responsavel: administrador do repositorio e Infra Atenza. Planejamento original;
+main e environment ja aplicados conforme atualizacao acima. Credenciais e ativacao pendentes.
 
 | Controle | Configuracao proposta / criterio de aceite |
 |---|---|
@@ -112,7 +149,7 @@ Nenhum teste financeiro com RM foi repetido nesta etapa.
 
 ## Proxima etapa
 
-Revisar PR com Douglas e aprovar protecao da main/environment, mantendo CD desligado.
+Revisar PR com Douglas, preservando protecoes da main/environment e CD desligado.
 Depois preparar e ensaiar publicacao/rollback com backup e autorizacao especifica.
 Leonardo segue responsavel pela validacao de negocio e contrato das views ja mapeados;
 nenhuma nova alteracao de view foi solicitada por esta revisao de CI/CD.
